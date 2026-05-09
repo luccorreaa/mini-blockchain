@@ -1,4 +1,4 @@
-use sha2::Digest;
+//blockchain.rs
 use crate::block::Block;
 use crate::transactions::Transaction;
 use ed25519_dalek::SigningKey;

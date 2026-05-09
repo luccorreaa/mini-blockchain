@@ -1,3 +1,5 @@
 /target
 Cargo.lock
+wallet.json
+blockchain.json
 

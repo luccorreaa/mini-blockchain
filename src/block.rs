@@ -1,11 +1,10 @@
+//block.rs
 use ed25519_dalek::SigningKey;
 use ed25519_dalek::Signer;
 use sha2::{Sha256, Digest};
 use std::time::{SystemTime};
-use std::vec;
 use crate::transactions::Transaction;
 use serde::{Serialize, Deserialize};
-use serde_big_array::BigArray;
 use crate::merklee::merklee_root;
 #[derive(Debug)]
 #[derive(Serialize, Deserialize)]

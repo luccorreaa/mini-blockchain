@@ -1,42 +1,53 @@
+//main.rs
 mod block;
 mod blockchain;
 mod transactions;
 mod merklee;
-use crate::blockchain::Blockchain;
-use rand::rngs::OsRng;
+mod cli;
+mod wallet;
+use crate::cli::Cli;
+use clap::{Parser, Subcommand};
 use ed25519_dalek::SigningKey;
+use rand::rngs::OsRng;
 use rand::RngCore;
 fn main(){
-    let mut blockchain = Blockchain::new_blockchain();
-    
-    let mut secret1 = [0u8; 32];
-    let mut secret2 = [0u8; 32];
-    OsRng.fill_bytes(&mut secret1);
-    OsRng.fill_bytes(&mut secret2);
-    
-    let bob = SigningKey::from_bytes(&secret1);
-    let alicia = SigningKey::from_bytes(&secret2);
+    let cli = Cli::parse();
+    match cli.command {
+        cli::Command::NewWallet => {
+            let mut secret = [0u8; 32];
+            OsRng.fill_bytes(&mut secret);
+            let signing_key = SigningKey::from_bytes(&secret);
+            let pubkey = signing_key.verifying_key().to_bytes();
+            let wallet = wallet::Wallet::new(secret, pubkey);
+            wallet.guardar("wallet.json").expect("Error al guardar la wallet");
+            println!("Generando nueva wallet...");
+            println!("Clave pública: {}", hex::encode(pubkey));
+        }
+        cli::Command::ShowChain => {
+            let blockchain = blockchain::Blockchain::cargar("blockchain.json").unwrap_or_else(|_| blockchain::Blockchain::new_blockchain());
+            println!("Mostrando la cadena de bloques...");
 
-    let bob_pubkey = bob.verifying_key().to_bytes();
-    let alicia_pubkey = alicia.verifying_key().to_bytes();
-
-    let mut tx1 = transactions::Transaction::new(bob_pubkey, alicia_pubkey, 50);
-    let mut tx2 = transactions::Transaction::new(alicia_pubkey, bob_pubkey, 30);
-    
-    tx1.firmar(&bob);
-    tx2.firmar(&alicia);
-
-    blockchain.add_block(vec![tx1, tx2]);
-    
-    blockchain.firmar_bloque(0, &alicia);
-
-    blockchain.firmar_bloque(1, &bob);
-
-    blockchain.guardar("blockchain.json").expect("Error al guardar la blockchain");
-    let blockchain_cargada = Blockchain::cargar("blockchain.json").expect("Error al cargar la blockchain");
-    println!("Blockchain cargada: {:?}\n", blockchain_cargada);
-
-    println!("Blockchain válida: {}", blockchain.validar());
+            for bloque in blockchain.get_cadena() {
+                println!("Bloque {}: Hash: {}, Hash Previo: {}, Timestamp: {}, Transacciones: {}", bloque.get_index(), bloque.get_hash(), bloque.get_hash_previo(), bloque.get_timestamp(), bloque.get_datos().len());
+            }
+        }
+        cli::Command::Validate => {
+            let blockchain = blockchain::Blockchain::cargar("blockchain.json").unwrap_or_else(|_| blockchain::Blockchain::new_blockchain());
+            
+            println!("Validando la cadena de bloques...");
+            println!("La cadena de bloques es válida: {}", blockchain.validar());
+        }
+        cli::Command::Send { from, to, amount } => {
+            let mut blockchain = blockchain::Blockchain::cargar("blockchain.json").unwrap_or_else(|_| blockchain::Blockchain::new_blockchain());
+            let mut tx = transactions::Transaction::new(hex::decode(&from).expect("Clave pública inválida").try_into().expect("Clave pública debe ser de 32 bytes"), hex::decode(&to).expect("Clave pública inválida").try_into().expect("Clave pública debe ser de 32 bytes"), amount);
+            println!("Enviando {} desde {} a {}...", amount, from, to);
+            let wallet = wallet::Wallet::cargar("wallet.json").expect("Error al cargar la wallet");
+            let signing_key = SigningKey::from_bytes(&wallet.secret);
+            tx.firmar(&signing_key);
+            blockchain.add_block(vec![tx]);
+            blockchain.guardar("blockchain.json").expect("Error al guardar la blockchain");
+        }
+    }
 }
 
 
