@@ -1,27 +1,36 @@
+use ed25519_dalek::SigningKey;
+use ed25519_dalek::Signer;
 use sha2::{Sha256, Digest};
 use std::time::{SystemTime};
+use std::vec;
+use crate::transactions::Transaction;
+use serde::{Serialize, Deserialize};
+use serde_big_array::BigArray;
 #[derive(Debug)]
+#[derive(Serialize, Deserialize)]
 pub struct Block{
     index: u32,
-    datos: String,
+    transacciones: Vec<Transaction>,
     hash_previo: String,
     hash: String,
     timestamp: u64,
-    firma: Option<[u8; 64]>,
+    pub firma: Option<Vec<u8>>,
     autor: Option<[u8; 32]>
 }
+
 impl Block{
     pub fn calcular_hash(&self)->String{
         let mut hasher = Sha256::new();
-        let contenido = format!("{}{}{}{}", self.index, self.datos, self.hash_previo, self.timestamp);
+        let contenido = format!("{}{}{}{}", self.index, self.transacciones.iter().map(|tx| format!("{}{}{}", hex::encode(tx.sender), hex::encode(tx.receiver), tx.amount)).collect::<Vec<String>>().join(""), self.hash_previo, self.timestamp);
         hasher.update(&contenido.as_bytes());
         let result = hasher.finalize();
         format!("{:x}",result)
     }
-    pub fn new(index: u32, datos: &str, hash_previo: &str) -> Block{
+
+    pub fn new(index: u32, transaction: Vec<Transaction>, hash_previo: &str) -> Block{
         let mut bloque = Block{
             index: index,
-            datos: String::from(datos),
+            transacciones: transaction,
             hash_previo: String::from(hash_previo),
             hash: String::new(),
             timestamp: SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs(),
@@ -30,11 +39,15 @@ impl Block{
         };
         bloque.hash = bloque.calcular_hash();
         bloque
+    }   
+
+    pub fn firmar(&mut self, signing_key: &SigningKey){
+        let contenido = format!("{}{}{}{}", self.index, self.transacciones.iter().map(|tx| format!("{}{}{}", hex::encode(tx.sender), hex::encode(tx.receiver), tx.amount)).collect::<Vec<String>>().join(""), self.hash_previo, self.timestamp);
+        let signature = signing_key.sign(contenido.as_bytes());
+        self.firma = Some(signature.to_bytes().to_vec());
+        self.autor = Some(signing_key.verifying_key().to_bytes());
     }
-    fn firmar(&mut self, firma: [u8; 64], autor: [u8; 32]){
-        self.firma = Some(firma);
-        self.autor = Some(autor);
-    }
+
     pub fn get_hash(&self)->&str{
         &self.hash
     }
@@ -47,5 +60,14 @@ impl Block{
     pub fn get_timestamp(&self)->u64{
         self.timestamp
     }
+    pub fn get_datos(&self)->&[Transaction]{
+        &self.transacciones
+    }
+    pub fn get_firma(&self) -> &Option<Vec<u8>>{
+    &self.firma
+    }
 
+    pub fn get_autor(&self) -> Option<[u8; 32]> {
+    self.autor
+}
 }
