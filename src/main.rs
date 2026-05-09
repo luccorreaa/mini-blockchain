@@ -1,6 +1,7 @@
 mod block;
 mod blockchain;
 mod transactions;
+mod merklee;
 use crate::blockchain::Blockchain;
 use rand::rngs::OsRng;
 use ed25519_dalek::SigningKey;
