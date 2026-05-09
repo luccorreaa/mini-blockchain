@@ -8,6 +8,7 @@ A blockchain implementation built from scratch in Rust, focused on understanding
 - **Structured transactions** — each block contains a `Vec<Transaction>` with sender, receiver, amount, and individual signature
 - **Ed25519 digital signatures** — blocks and transactions are signed independently; each transaction is signed by its sender's private key
 - **Multiple signers** — each participant has their own keypair generated with `OsRng`, a cryptographically secure random number generator
+- **Merkle tree** — transactions in each block are hashed using an iterative bottom-up Merkle tree; the Merkle Root is used in both block hashing and block signing
 - **JSON persistence** — the chain can be saved to disk and loaded back with full integrity
 
 ## Cryptographic Primitives
@@ -25,7 +26,8 @@ src/
 ├── main.rs           # Entry point — creates chain, signs transactions, saves/loads
 ├── block.rs          # Block struct with hash calculation, signing, getters
 ├── blockchain.rs     # Blockchain struct with validation and persistence
-└── transactions.rs   # Transaction struct with individual Ed25519 signatures
+├── transactions.rs   # Transaction struct with individual Ed25519 signatures
+└── merkle.rs         # Merkle tree — iterative bottom-up construction, handles odd counts
 ```
 
 ## How It Works
@@ -48,6 +50,25 @@ Each transaction contains:
 - `receiver` — public key of the receiver (32 bytes, stored as hex in JSON)
 - `amount` — amount transferred (`u64`)
 - `firma` — Ed25519 signature of the transaction by the sender
+
+### Merkle tree
+
+Transactions within a block are hashed using an iterative bottom-up Merkle tree:
+
+```
+           Merkle Root
+           [Hash(AB|CD)]
+           /           \
+     [Hash(AB)]      [Hash(CD)]
+       /    \           /    \
+  [Hash(A)] [Hash(B)] [Hash(C)] [Hash(D)]
+      |         |         |         |
+     tx1       tx2       tx3       tx4
+```
+
+Each leaf is the SHA-256 of a transaction's `sender + receiver + amount`. Pairs are concatenated and hashed level by level until one hash remains — the Merkle Root. If a level has an odd number of nodes, the last one is duplicated.
+
+The Merkle Root is used in both `calcular_hash` and `firmar`, ensuring that any change to any transaction invalidates both the block hash and the block signature.
 
 ### Chain validation
 
@@ -98,6 +119,6 @@ Blockchain válida: true
 - [x] Structured transactions with individual signatures
 - [x] Multiple signers
 - [x] JSON persistence with serde
-- [ ] Merkle tree for transaction hashing
+- [x] Merkle tree for transaction hashing
 - [ ] CLI interface with clap
 - [ ] REST API with axum

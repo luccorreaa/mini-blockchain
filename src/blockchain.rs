@@ -4,6 +4,7 @@ use crate::transactions::Transaction;
 use ed25519_dalek::SigningKey;
 use ed25519_dalek::{VerifyingKey, Signature, Verifier};
 use serde::{Serialize, Deserialize};
+use crate::merklee::merklee_root;
 
 #[derive(Debug)]
 #[derive(Serialize, Deserialize)]
@@ -43,7 +44,7 @@ impl Blockchain {
                 let contenido = format!(
                     "{}{}{}{}",
                     bloque.get_index(),
-                    bloque.get_datos().iter().map(|tx| format!("{}{}{}", hex::encode(tx.sender), hex::encode(tx.receiver), tx.amount)).collect::<Vec<String>>().join(""),
+                    merklee_root(bloque.get_datos()),
                     bloque.get_hash_previo(),
                     bloque.get_timestamp()
                 );

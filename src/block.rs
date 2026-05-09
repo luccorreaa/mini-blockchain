@@ -6,6 +6,7 @@ use std::vec;
 use crate::transactions::Transaction;
 use serde::{Serialize, Deserialize};
 use serde_big_array::BigArray;
+use crate::merklee::merklee_root;
 #[derive(Debug)]
 #[derive(Serialize, Deserialize)]
 pub struct Block{
@@ -21,7 +22,7 @@ pub struct Block{
 impl Block{
     pub fn calcular_hash(&self)->String{
         let mut hasher = Sha256::new();
-        let contenido = format!("{}{}{}{}", self.index, self.transacciones.iter().map(|tx| format!("{}{}{}", hex::encode(tx.sender), hex::encode(tx.receiver), tx.amount)).collect::<Vec<String>>().join(""), self.hash_previo, self.timestamp);
+        let contenido = format!("{}{}{}{}", self.index, merklee_root(&self.transacciones), self.hash_previo, self.timestamp);
         hasher.update(&contenido.as_bytes());
         let result = hasher.finalize();
         format!("{:x}",result)
@@ -42,7 +43,7 @@ impl Block{
     }   
 
     pub fn firmar(&mut self, signing_key: &SigningKey){
-        let contenido = format!("{}{}{}{}", self.index, self.transacciones.iter().map(|tx| format!("{}{}{}", hex::encode(tx.sender), hex::encode(tx.receiver), tx.amount)).collect::<Vec<String>>().join(""), self.hash_previo, self.timestamp);
+        let contenido = format!("{}{}{}{}", self.index, merklee_root(&self.transacciones), self.hash_previo, self.timestamp);
         let signature = signing_key.sign(contenido.as_bytes());
         self.firma = Some(signature.to_bytes().to_vec());
         self.autor = Some(signing_key.verifying_key().to_bytes());
