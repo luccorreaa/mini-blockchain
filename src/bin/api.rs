@@ -1,0 +1,110 @@
+// src/bin/api.rs
+use std::sync::{Arc, Mutex};
+use mini_blockchain::blockchain::{self, Blockchain};
+use mini_blockchain::wallet::Wallet;
+use mini_blockchain::transactions::Transaction;
+use axum::{Router, routing::{get, post}, extract::State, Json};
+use axum::extract::Path;
+use axum::http::StatusCode;
+use serde_json::Value;
+use serde::Deserialize;
+use ed25519_dalek::SigningKey;
+use rand::rngs::OsRng;
+use rand::RngCore;
+use hex;
+
+#[derive(Deserialize)]
+struct SendPayload {
+    from: String,
+    to: String,
+    amount: u64,
+}
+
+#[tokio::main]
+async fn main() {
+    let blockchain = Blockchain::cargar("blockchain.json")
+        .unwrap_or_else(|_| Blockchain::new_blockchain());
+    let state = Arc::new(Mutex::new(blockchain));
+
+    let app = Router::new()
+        .route("/chain", get(get_chain))
+        .route("/validar", get(validar))
+        .route("/block/:index", get(get_block))
+        .route("/wallet", post(wallet))
+        .route("/send", post(send_transaction))
+        .with_state(state);
+
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    println!("API corriendo en http://localhost:3000");
+    axum::serve(listener, app).await.unwrap();
+}
+
+async fn get_chain(
+    State(blockchain): State<Arc<Mutex<Blockchain>>>
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let bc = blockchain.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Error interno".to_string()))?;
+    Ok(Json(serde_json::to_value(&*bc).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Error al serializar la cadena".to_string()))?))
+}
+
+async fn wallet()->String {
+        let mut secret = [0u8; 32];
+        OsRng.fill_bytes(&mut secret);
+        let signing_key = SigningKey::from_bytes(&secret);
+        let pubkey = signing_key.verifying_key().to_bytes();
+        let wallet = Wallet::new(secret, pubkey);
+        wallet.guardar("wallet.json").expect("Error al guardar la wallet");
+        println!("Generando nueva wallet...");
+        hex::encode(pubkey)
+}
+
+async fn send_transaction(
+    State(blockchain): State<Arc<Mutex<Blockchain>>>,
+    Json(payload): Json<SendPayload>
+) -> Result<String, (StatusCode, String)> {
+    let from = hex::decode(&payload.from)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "Clave pública 'from' inválida".to_string()))?
+        .try_into()
+        .map_err(|_| (StatusCode::BAD_REQUEST, "Clave pública 'from' debe ser de 32 bytes".to_string()))?;
+
+    let to = hex::decode(&payload.to)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "Clave pública 'to' inválida".to_string()))?
+        .try_into()
+        .map_err(|_| (StatusCode::BAD_REQUEST, "Clave pública 'to' debe ser de 32 bytes".to_string()))?;
+
+    let mut blockchain = blockchain.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Error interno".to_string()))?;
+
+    let mut tx = Transaction::new(from, to, payload.amount);
+
+    let wallet = Wallet::cargar("wallet.json")
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Error al cargar la wallet".to_string()))?;
+
+    let signing_key = SigningKey::from_bytes(&wallet.secret);
+    tx.firmar(&signing_key);
+    blockchain.add_block(vec![tx]);
+    blockchain.guardar("blockchain.json")
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Error al guardar la blockchain".to_string()))?;
+
+    Ok("Transacción enviada".to_string())
+}
+
+async fn validar(
+    State(blockchain): State<Arc<Mutex<Blockchain>>>
+) -> String {
+    let blockchain = blockchain.lock().unwrap();
+    format!("La cadena de bloques es válida: {}", blockchain.validar())
+}
+
+async fn get_block(
+    State(blockchain): State<Arc<Mutex<Blockchain>>>,
+    Path(index): Path<u32>
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let blockchain = blockchain.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Error interno".to_string()))?;
+    
+    match blockchain.get_cadena().iter().find(|b| b.get_index() == index) {
+        Some(block) => Ok(Json(serde_json::to_value(block).unwrap())),
+        None => Err((StatusCode::NOT_FOUND, format!("Bloque {} no encontrado", index)))
+    }
+}

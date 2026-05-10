@@ -11,6 +11,7 @@ A blockchain implementation built from scratch in Rust, focused on understanding
 - **Merkle tree** — transactions in each block are hashed using an iterative bottom-up Merkle tree; the Merkle Root is used in both block hashing and block signing
 - **JSON persistence** — the chain can be saved to disk and loaded back with full integrity
 - **CLI interface** — interact with the blockchain from the terminal using `clap`
+- **REST API** — expose the blockchain over HTTP with `axum` and `tokio`; shared state across handlers via `Arc<Mutex<Blockchain>>`
 
 ## Cryptographic Primitives
 
@@ -24,7 +25,10 @@ A blockchain implementation built from scratch in Rust, focused on understanding
 
 ```
 src/
-├── main.rs           # Entry point — CLI dispatch
+├── lib.rs            # Library crate — shared modules
+├── main.rs           # Binary: CLI dispatch
+├── bin/
+│   └── api.rs        # Binary: REST API (axum + tokio)
 ├── block.rs          # Block struct with hash calculation, signing, getters
 ├── blockchain.rs     # Blockchain struct with validation and persistence
 ├── transactions.rs   # Transaction struct with individual Ed25519 signatures
@@ -85,16 +89,59 @@ The Merkle Root is used in both `calcular_hash` and `firmar`, ensuring that any 
 
 ```bash
 # Generate a new wallet (saved to wallet.json)
-cargo run -- new-wallet
+cargo run --bin mini_blockchain -- new-wallet
 
 # Send a transaction
-cargo run -- send --from <sender_pubkey_hex> --to <receiver_pubkey_hex> --amount <amount>
+cargo run --bin mini_blockchain -- send --from <sender_pubkey_hex> --to <receiver_pubkey_hex> --amount <amount>
 
 # Show all blocks
-cargo run -- show-chain
+cargo run --bin mini_blockchain -- show-chain
 
 # Validate the chain
-cargo run -- validate
+cargo run --bin mini_blockchain -- validate
+```
+
+## REST API
+
+```bash
+# Start the API server
+cargo run --bin api
+```
+
+| Method | Endpoint        | Description                             |
+|--------|-----------------|-----------------------------------------|
+| GET    | `/chain`        | Returns the full blockchain as JSON     |
+| GET    | `/validate`     | Validates chain integrity               |
+| GET    | `/block/:index` | Returns a specific block by index       |
+| POST   | `/wallet`       | Generates a new wallet, returns pubkey  |
+| POST   | `/send`         | Creates and signs a new transaction     |
+
+### POST /send — Request body
+
+```json
+{
+  "from": "<sender_pubkey_hex>",
+  "to": "<receiver_pubkey_hex>",
+  "amount": 100
+}
+```
+
+### Example
+
+```bash
+# Generate a wallet
+curl -X POST http://localhost:3000/wallet
+
+# Send a transaction
+curl -X POST http://localhost:3000/send \
+  -H "Content-Type: application/json" \
+  -d '{"from":"<pubkey>","to":"<pubkey>","amount":100}'
+
+# Inspect the chain
+curl http://localhost:3000/chain
+
+# Get a specific block
+curl http://localhost:3000/block/0
 ```
 
 ## Dependencies
@@ -108,6 +155,8 @@ rand = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 clap = { version = "4", features = ["derive"] }
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
 ```
 
 ## Roadmap
@@ -119,4 +168,4 @@ clap = { version = "4", features = ["derive"] }
 - [x] JSON persistence with serde
 - [x] Merkle tree for transaction hashing
 - [x] CLI interface with clap
-- [ ] REST API with axum
+- [x] REST API with axum
