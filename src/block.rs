@@ -5,7 +5,7 @@ use sha2::{Sha256, Digest};
 use std::time::{SystemTime};
 use crate::transactions::Transaction;
 use serde::{Serialize, Deserialize};
-use crate::merklee::merklee_root;
+use crate::merkle::merklee_root;
 #[derive(Debug)]
 #[derive(Serialize, Deserialize)]
 pub struct Block{

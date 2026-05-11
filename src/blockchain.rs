@@ -2,7 +2,7 @@
 use ed25519_dalek::SigningKey;
 use ed25519_dalek::{VerifyingKey, Signature, Verifier};
 use serde::{Serialize, Deserialize};
-use crate::merklee::merklee_root;
+use crate::merkle::merklee_root;
 use crate::block::Block;
 use crate::transactions::Transaction;
 #[derive(Debug)]

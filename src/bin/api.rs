@@ -1,6 +1,6 @@
 // src/bin/api.rs
 use std::sync::{Arc, Mutex};
-use mini_blockchain::blockchain::{self, Blockchain};
+use mini_blockchain::blockchain::{ Blockchain};
 use mini_blockchain::wallet::Wallet;
 use mini_blockchain::transactions::Transaction;
 use axum::{Router, routing::{get, post}, extract::State, Json};
@@ -12,6 +12,8 @@ use ed25519_dalek::SigningKey;
 use rand::rngs::OsRng;
 use rand::RngCore;
 use hex;
+use tracing::info;
+use tracing_subscriber::EnvFilter;
 
 #[derive(Deserialize)]
 struct SendPayload {
@@ -22,6 +24,10 @@ struct SendPayload {
 
 #[tokio::main]
 async fn main() {
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .init();
+
     let blockchain = Blockchain::cargar("blockchain.json")
         .unwrap_or_else(|_| Blockchain::new_blockchain());
     let state = Arc::new(Mutex::new(blockchain));
@@ -35,7 +41,7 @@ async fn main() {
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-    println!("API corriendo en http://localhost:3000");
+    info!(addr = "http://localhost:3000", "API iniciada");
     axum::serve(listener, app).await.unwrap();
 }
 
@@ -52,10 +58,11 @@ async fn wallet()->String {
         OsRng.fill_bytes(&mut secret);
         let signing_key = SigningKey::from_bytes(&secret);
         let pubkey = signing_key.verifying_key().to_bytes();
+        let pubkey_hex = hex::encode(pubkey);
         let wallet = Wallet::new(secret, pubkey);
         wallet.guardar("wallet.json").expect("Error al guardar la wallet");
-        println!("Generando nueva wallet...");
-        hex::encode(pubkey)
+        info!(pubkey = %pubkey_hex, "Nueva wallet generada");
+        pubkey_hex
 }
 
 async fn send_transaction(
@@ -86,6 +93,7 @@ async fn send_transaction(
     blockchain.guardar("blockchain.json")
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Error al guardar la blockchain".to_string()))?;
 
+    info!(from = %payload.from, to = %payload.to, amount = payload.amount, "Transacción agregada al bloque");
     Ok("Transacción enviada".to_string())
 }
 
