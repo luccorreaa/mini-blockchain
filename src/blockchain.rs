@@ -76,4 +76,29 @@ impl Blockchain {
     pub fn get_cadena(&self) -> &[Block] {
         &self.cadena
     }
+    #[cfg(test)]
+    pub fn corromper_bloque(&mut self, index: usize) {
+    if let Some(bloque) = self.cadena.iter_mut().find(|b| b.get_index() as usize == index) {
+        bloque.corromper();
+    }
+}
+
+}
+
+
+#[cfg(test)]
+mod tests{
+
+use super::*;
+
+    #[test]
+    fn mi_test() {
+        let mut blockchain = Blockchain::new_blockchain();
+
+        blockchain.add_block(vec![]);
+        blockchain.add_block(vec![]);
+        assert!(blockchain.validar());
+        blockchain.corromper_bloque(1);
+        assert!(!blockchain.validar());
+    }
 }

@@ -70,4 +70,28 @@ impl Block{
     pub fn get_autor(&self) -> Option<[u8; 32]> {
     self.autor
 }
+    #[cfg(test)]
+    pub fn corromper(&mut self) {
+    self.hash = "hash_corrupto".to_string();
 }
+}
+
+#[cfg(test)]
+mod tests{
+    use super::*;
+
+    #[test]
+    fn mi_test() {
+        let mut block = Block::new(0, vec![], "0");
+        block.calcular_hash();
+        assert_eq!(block.get_hash(), block.calcular_hash());
+    }
+    #[test]
+    fn test_2() {
+        let mut block = Block::new(0, vec![], "0");
+        block.transacciones.push(Transaction::new([0u8; 32], [1u8; 32], 100));
+        assert!(block.get_hash() != block.calcular_hash());
+    }
+    
+}
+
