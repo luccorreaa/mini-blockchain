@@ -11,7 +11,6 @@ use serde::Deserialize;
 use ed25519_dalek::SigningKey;
 use rand::rngs::OsRng;
 use rand::RngCore;
-use hex;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
