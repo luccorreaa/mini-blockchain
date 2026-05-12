@@ -10,14 +10,21 @@ use hex;
 pub struct Blockchain {
     cadena: Vec<Block>,
     #[serde(default)]
-    mempool: Vec<Transaction>
+    mempool: Vec<Transaction>,
+    #[serde(default = "default_difficulty")]
+    difficulty: usize,
 }
+
+fn default_difficulty() -> usize { 2 }
 
 impl Blockchain {
     pub fn new_blockchain() -> Blockchain {
+        Blockchain::new_blockchain_with_difficulty(2)
+    }
+
+    pub fn new_blockchain_with_difficulty(difficulty: usize) -> Blockchain {
         let bloque = Block::new(0, vec![], "");
-        Blockchain { cadena: vec![bloque] 
-        , mempool: vec![] }
+        Blockchain { cadena: vec![bloque], mempool: vec![], difficulty }
     }
 
     pub fn add_block(&mut self, transactions: Vec<Transaction>) {
@@ -66,11 +73,25 @@ impl Blockchain {
         Ok(())
     }
     
-    pub fn minar(&mut self, dificultad: usize){
-        if let Some(bloque) = self.cadena.last() {
-            let txs = std::mem::take(&mut self.mempool);
-            let mut nuevo_bloque = Block::new(bloque.index() + 1, txs, bloque.hash());
-            nuevo_bloque.minar(dificultad);
+    pub fn difficulty(&self) -> usize { self.difficulty }
+
+    pub fn tip(&self) -> Option<(u32, String)> {
+        self.cadena.last().map(|b| (b.index(), b.hash().to_string()))
+    }
+
+    pub fn take_mempool(&mut self) -> Vec<Transaction> {
+        std::mem::take(&mut self.mempool)
+    }
+
+    pub fn push_block(&mut self, block: Block) {
+        self.cadena.push(block);
+    }
+
+    pub fn minar(&mut self) {
+        if let Some((tip_index, tip_hash)) = self.tip() {
+            let txs = self.take_mempool();
+            let mut nuevo_bloque = Block::new(tip_index + 1, txs, &tip_hash);
+            nuevo_bloque.minar(self.difficulty);
             self.cadena.push(nuevo_bloque);
         }
     }
@@ -180,6 +201,12 @@ mod tests{
 use super::*;
 
     #[test]
+    fn blockchain_almacena_dificultad_configurada() {
+        let bc = Blockchain::new_blockchain_with_difficulty(4);
+        assert_eq!(bc.difficulty(), 4);
+    }
+
+    #[test]
     fn add_transaction_rechaza_si_saldo_insuficiente() {
         let mut blockchain = Blockchain::new_blockchain();
         let sender = [1u8; 32];
@@ -201,7 +228,7 @@ use super::*;
         let mut blockchain = Blockchain::new_blockchain();
         let miner = [3u8; 32];
         blockchain.add_coinbase(miner, 50);
-        blockchain.minar(2);
+        blockchain.minar();
         assert_eq!(blockchain.balance_of(&miner), 50);
     }
 

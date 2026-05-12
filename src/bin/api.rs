@@ -124,7 +124,7 @@ async fn mine(
     let mut blockchain = blockchain.lock()
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Error interno".to_string()))?;
 
-    blockchain.minar(2);
+    blockchain.minar();
     blockchain.guardar("blockchain.json").map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Error al guardar la cadena".to_string()))?;
     info!("Nuevo bloque minado");
     Ok("Bloque minado exitosamente\n".to_string())
