@@ -26,8 +26,44 @@ impl Blockchain {
             self.cadena.push(nuevo_bloque);
         }
     }
-    pub fn add_transaction(&mut self, transaction: Transaction) {
+    pub fn balance_of(&self, pubkey: &[u8; 32]) -> u64 {
+        let mut balance = 0u64;
+        for block in &self.cadena {
+            for tx in block.transactions() {
+                if tx.sender != [0u8; 32] && &tx.sender == pubkey {
+                    balance = balance.saturating_sub(tx.amount);
+                }
+                if &tx.receiver == pubkey {
+                    balance = balance.saturating_add(tx.amount);
+                }
+            }
+        }
+        // Restar lo comprometido en el mempool (para el cálculo de disponibilidad)
+        for tx in &self.mempool {
+            if tx.sender != [0u8; 32] && &tx.sender == pubkey {
+                balance = balance.saturating_sub(tx.amount);
+            }
+        }
+        balance
+    }
+
+    pub fn add_coinbase(&mut self, miner: [u8; 32], reward: u64) {
+        let coinbase = Transaction::new([0u8; 32], miner, reward);
+        self.mempool.insert(0, coinbase);
+    }
+
+    pub fn add_transaction(&mut self, transaction: Transaction) -> Result<(), String> {
+        if transaction.sender != [0u8; 32] {
+            let available = self.balance_of(&transaction.sender);
+            if available < transaction.amount {
+                return Err(format!(
+                    "Saldo insuficiente: disponible {}, requerido {}",
+                    available, transaction.amount
+                ));
+            }
+        }
         self.mempool.push(transaction);
+        Ok(())
     }
     
     pub fn minar(&mut self, dificultad: usize){
@@ -142,6 +178,32 @@ impl Blockchain {
 mod tests{
 
 use super::*;
+
+    #[test]
+    fn add_transaction_rechaza_si_saldo_insuficiente() {
+        let mut blockchain = Blockchain::new_blockchain();
+        let sender = [1u8; 32];
+        let receiver = [2u8; 32];
+        let tx = Transaction::new(sender, receiver, 100); // sender no tiene fondos
+        assert!(blockchain.add_transaction(tx).is_err());
+    }
+
+    #[test]
+    fn add_coinbase_agrega_a_mempool_sin_validar_saldo() {
+        let mut blockchain = Blockchain::new_blockchain();
+        let miner = [3u8; 32];
+        blockchain.add_coinbase(miner, 50);
+        assert_eq!(blockchain.mempool.len(), 1);
+    }
+
+    #[test]
+    fn balance_aumenta_tras_minar_coinbase() {
+        let mut blockchain = Blockchain::new_blockchain();
+        let miner = [3u8; 32];
+        blockchain.add_coinbase(miner, 50);
+        blockchain.minar(2);
+        assert_eq!(blockchain.balance_of(&miner), 50);
+    }
 
     #[test]
     fn cadena_corrompida_no_es_valida() {

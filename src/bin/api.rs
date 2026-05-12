@@ -79,7 +79,7 @@ async fn add_to_mempool(
         .try_into()
         .map_err(|_| (StatusCode::BAD_REQUEST, "Clave pública 'to' debe ser de 32 bytes".to_string()))?;
 
-    let mut blockchain = blockchain.lock()
+    let mut bc = blockchain.lock()
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Error interno".to_string()))?;
 
     let mut tx = Transaction::new(from, to, payload.amount);
@@ -89,8 +89,8 @@ async fn add_to_mempool(
 
     let signing_key = SigningKey::from_bytes(&wallet.secret);
     tx.firmar(&signing_key);
-    blockchain.add_transaction(tx);
-
+    bc.add_transaction(tx)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
     info!(from = %payload.from, to = %payload.to, amount = payload.amount, "Transacción agregada a mempool");
     Ok("Transacción enviada".to_string())
