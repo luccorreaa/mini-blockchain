@@ -9,16 +9,24 @@ use mini_blockchain::blockchain::Blockchain;
 use mini_blockchain::wallet::Wallet;
 use mini_blockchain::transactions::Transaction;
 
+fn wallet_password() -> String {
+    std::env::var("WALLET_PASSWORD").unwrap_or_else(|_| "dev_password_change_me".to_string())
+}
+
 fn main() {
     let cli = Cli::parse();
     match cli.command {
         Command::NewWallet => {
+            if std::path::Path::new("wallet.json").exists() {
+                eprintln!("Ya existe una wallet. Eliminá wallet.json antes de generar una nueva.");
+                std::process::exit(1);
+            }
             let mut secret = [0u8; 32];
             OsRng.fill_bytes(&mut secret);
             let signing_key = SigningKey::from_bytes(&secret);
             let pubkey = signing_key.verifying_key().to_bytes();
             let wallet = Wallet::new(secret, pubkey);
-            wallet.guardar("wallet.json").expect("Error al guardar la wallet");
+            wallet.guardar_cifrado("wallet.json", &wallet_password()).expect("Error al guardar la wallet");
             println!("Generando nueva wallet...");
             println!("Clave pública: {}", hex::encode(pubkey));
         }
@@ -42,7 +50,7 @@ fn main() {
                 amount
             );
             println!("Enviando {} desde {} a {}...", amount, from, to);
-            let wallet = Wallet::cargar("wallet.json").expect("Error al cargar la wallet");
+            let wallet = Wallet::cargar_cifrado("wallet.json", &wallet_password()).expect("Error al cargar la wallet");
             let signing_key = SigningKey::from_bytes(&wallet.secret);
             tx.firmar(&signing_key);
             blockchain.add_block(vec![tx]);

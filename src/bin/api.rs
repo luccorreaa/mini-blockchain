@@ -53,16 +53,27 @@ async fn get_chain(
     Ok(Json(serde_json::to_value(&*bc).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Error al serializar la cadena".to_string()))?))
 }
 
-async fn wallet()->String {
-        let mut secret = [0u8; 32];
-        OsRng.fill_bytes(&mut secret);
-        let signing_key = SigningKey::from_bytes(&secret);
-        let pubkey = signing_key.verifying_key().to_bytes();
-        let pubkey_hex = hex::encode(pubkey);
-        let wallet = Wallet::new(secret, pubkey);
-        wallet.guardar("wallet.json").expect("Error al guardar la wallet");
-        info!(pubkey = %pubkey_hex, "Nueva wallet generada");
-        pubkey_hex
+fn wallet_password() -> String {
+    std::env::var("WALLET_PASSWORD").unwrap_or_else(|_| "dev_password_change_me".to_string())
+}
+
+async fn wallet() -> Result<String, (StatusCode, String)> {
+    if std::path::Path::new("wallet.json").exists() {
+        return Err((
+            StatusCode::CONFLICT,
+            "Ya existe una wallet. Eliminá wallet.json antes de generar una nueva.".to_string(),
+        ));
+    }
+    let mut secret = [0u8; 32];
+    OsRng.fill_bytes(&mut secret);
+    let signing_key = SigningKey::from_bytes(&secret);
+    let pubkey = signing_key.verifying_key().to_bytes();
+    let pubkey_hex = hex::encode(pubkey);
+    let w = Wallet::new(secret, pubkey);
+    w.guardar_cifrado("wallet.json", &wallet_password())
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Error al guardar la wallet".to_string()))?;
+    info!(pubkey = %pubkey_hex, "Nueva wallet generada");
+    Ok(pubkey_hex)
 }
 
 async fn add_to_mempool(
@@ -84,7 +95,7 @@ async fn add_to_mempool(
 
     let mut tx = Transaction::new(from, to, payload.amount);
 
-    let wallet = Wallet::cargar("wallet.json")
+    let wallet = Wallet::cargar_cifrado("wallet.json", &wallet_password())
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Error al cargar la wallet".to_string()))?;
 
     let signing_key = SigningKey::from_bytes(&wallet.secret);
