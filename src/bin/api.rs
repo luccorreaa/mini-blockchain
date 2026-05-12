@@ -1,8 +1,9 @@
-// src/bin/api.rs
-use std::sync::{Arc, Mutex};
-use mini_blockchain::blockchain::{ Blockchain};
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use mini_blockchain::blockchain::Blockchain;
 use mini_blockchain::wallet::Wallet;
 use mini_blockchain::transactions::Transaction;
+use mini_blockchain::block::Block;
 use axum::{Router, routing::{get, post}, extract::State, Json};
 use axum::extract::Path;
 use axum::http::StatusCode;
@@ -14,11 +15,17 @@ use rand::RngCore;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
+type AppState = Arc<RwLock<Blockchain>>;
+
 #[derive(Deserialize)]
 struct SendPayload {
     from: String,
     to: String,
     amount: u64,
+}
+
+fn wallet_password() -> String {
+    std::env::var("WALLET_PASSWORD").unwrap_or_else(|_| "dev_password_change_me".to_string())
 }
 
 #[tokio::main]
@@ -29,7 +36,7 @@ async fn main() {
 
     let blockchain = Blockchain::cargar("blockchain.json")
         .unwrap_or_else(|_| Blockchain::new_blockchain());
-    let state = Arc::new(Mutex::new(blockchain));
+    let state: AppState = Arc::new(RwLock::new(blockchain));
 
     let app = Router::new()
         .route("/chain", get(get_chain))
@@ -46,15 +53,11 @@ async fn main() {
 }
 
 async fn get_chain(
-    State(blockchain): State<Arc<Mutex<Blockchain>>>
+    State(blockchain): State<AppState>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
-    let bc = blockchain.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Error interno".to_string()))?;
-    Ok(Json(serde_json::to_value(&*bc).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Error al serializar la cadena".to_string()))?))
-}
-
-fn wallet_password() -> String {
-    std::env::var("WALLET_PASSWORD").unwrap_or_else(|_| "dev_password_change_me".to_string())
+    let bc = blockchain.read().await;
+    Ok(Json(serde_json::to_value(&*bc)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Error al serializar".to_string()))?))
 }
 
 async fn wallet() -> Result<String, (StatusCode, String)> {
@@ -77,66 +80,89 @@ async fn wallet() -> Result<String, (StatusCode, String)> {
 }
 
 async fn add_to_mempool(
-    State(blockchain): State<Arc<Mutex<Blockchain>>>,
-    Json(payload): Json<SendPayload>
+    State(blockchain): State<AppState>,
+    Json(payload): Json<SendPayload>,
 ) -> Result<String, (StatusCode, String)> {
-    let from = hex::decode(&payload.from)
-        .map_err(|_| (StatusCode::BAD_REQUEST, "Clave pública 'from' inválida".to_string()))?
+    let from: [u8; 32] = hex::decode(&payload.from)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "Clave 'from' inválida".to_string()))?
         .try_into()
-        .map_err(|_| (StatusCode::BAD_REQUEST, "Clave pública 'from' debe ser de 32 bytes".to_string()))?;
+        .map_err(|_| (StatusCode::BAD_REQUEST, "'from' debe ser 32 bytes".to_string()))?;
 
-    let to = hex::decode(&payload.to)
-        .map_err(|_| (StatusCode::BAD_REQUEST, "Clave pública 'to' inválida".to_string()))?
+    let to: [u8; 32] = hex::decode(&payload.to)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "Clave 'to' inválida".to_string()))?
         .try_into()
-        .map_err(|_| (StatusCode::BAD_REQUEST, "Clave pública 'to' debe ser de 32 bytes".to_string()))?;
-
-    let mut bc = blockchain.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Error interno".to_string()))?;
-
-    let mut tx = Transaction::new(from, to, payload.amount);
+        .map_err(|_| (StatusCode::BAD_REQUEST, "'to' debe ser 32 bytes".to_string()))?;
 
     let wallet = Wallet::cargar_cifrado("wallet.json", &wallet_password())
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Error al cargar la wallet".to_string()))?;
-
     let signing_key = SigningKey::from_bytes(&wallet.secret);
+
+    let mut tx = Transaction::new(from, to, payload.amount);
     tx.firmar(&signing_key);
+
+    let mut bc = blockchain.write().await;
     bc.add_transaction(tx)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
-    info!(from = %payload.from, to = %payload.to, amount = payload.amount, "Transacción agregada a mempool");
+    info!(from = %payload.from, to = %payload.to, amount = payload.amount, "Transacción en mempool");
     Ok("Transacción enviada".to_string())
 }
 
 async fn validar(
-    State(blockchain): State<Arc<Mutex<Blockchain>>>
+    State(blockchain): State<AppState>,
 ) -> Result<String, (StatusCode, String)> {
-    let blockchain = blockchain.lock().map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Error interno".to_string()))?;
-    let resultado = blockchain.validar();
+    let bc = blockchain.read().await;
+    let resultado = bc.validar();
     info!(valida = resultado, "Validación ejecutada");
     Ok(format!("La cadena de bloques es válida: {}", resultado))
-}   
+}
 
 async fn get_block(
-    State(blockchain): State<Arc<Mutex<Blockchain>>>,
-    Path(index): Path<u32>
+    State(blockchain): State<AppState>,
+    Path(index): Path<u32>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
-    let blockchain = blockchain.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Error interno".to_string()))?;
-    
-    match blockchain.cadena().iter().find(|b| b.index() == index) {
-        Some(block) => Ok(Json(serde_json::to_value(block).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Error al serializar el bloque".to_string()))?)),
-        None => Err((StatusCode::NOT_FOUND, format!("Bloque {} no encontrado", index)))
+    let bc = blockchain.read().await;
+    match bc.cadena().iter().find(|b| b.index() == index) {
+        Some(block) => Ok(Json(serde_json::to_value(block)
+            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Error al serializar".to_string()))?)),
+        None => Err((StatusCode::NOT_FOUND, format!("Bloque {} no encontrado", index))),
     }
 }
 
 async fn mine(
-    State(blockchain): State<Arc<Mutex<Blockchain>>>
+    State(blockchain): State<AppState>,
 ) -> Result<String, (StatusCode, String)> {
-    let mut blockchain = blockchain.lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Error interno".to_string()))?;
+    // Fase 1: extraer datos y soltar el write lock inmediatamente
+    let (index, prev_hash, txs, difficulty) = {
+        let mut bc = blockchain.write().await;
 
-    blockchain.minar();
-    blockchain.guardar("blockchain.json").map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Error al guardar la cadena".to_string()))?;
+        // Agregar coinbase para el minero si hay wallet disponible
+        if let Ok(wallet) = Wallet::cargar_cifrado("wallet.json", &wallet_password()) {
+            bc.add_coinbase(wallet.pubkey, 50);
+        }
+
+        let (tip_index, tip_hash) = bc.tip()
+            .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "Cadena vacía".to_string()))?;
+        let txs = bc.take_mempool();
+        let difficulty = bc.difficulty();
+        (tip_index + 1, tip_hash, txs, difficulty)
+    }; // write lock liberado aquí
+
+    // Fase 2: minar sin mantener ningún lock (Proof of Work puede tardar)
+    let block = tokio::task::spawn_blocking(move || {
+        let mut b = Block::new(index, txs, &prev_hash);
+        b.minar(difficulty);
+        b
+    })
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Error en el hilo de minado".to_string()))?;
+
+    // Fase 3: agregar el bloque minado y guardar
+    let mut bc = blockchain.write().await;
+    bc.push_block(block);
+    bc.guardar("blockchain.json")
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Error al guardar".to_string()))?;
+
     info!("Nuevo bloque minado");
     Ok("Bloque minado exitosamente\n".to_string())
 }
