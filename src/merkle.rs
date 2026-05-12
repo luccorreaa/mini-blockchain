@@ -8,7 +8,13 @@ pub fn merkle_root(transactions: &[Transaction]) -> String {
         return String::new();
     }
     let mut hashes: Vec<String> = transactions.iter().map(|tx| {
-        let contenido = format!("{}{}{}", hex::encode(tx.sender), hex::encode(tx.receiver), tx.amount);
+        let contenido = format!(
+            "{}{}{}{}",
+            hex::encode(tx.sender),
+            hex::encode(tx.receiver),
+            tx.amount,
+            tx.nonce
+        );
         let mut hasher = sha2::Sha256::new();
         hasher.update(contenido.as_bytes());
         let result = hasher.finalize();
