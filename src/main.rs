@@ -42,19 +42,44 @@ fn main() {
             println!("Validando la cadena de bloques...");
             println!("La cadena de bloques es válida: {}", blockchain.validar());
         }
+        Command::Mine => {
+            let mut blockchain = Blockchain::cargar("blockchain.json")
+                .unwrap_or_else(|_| Blockchain::new_blockchain());
+
+            if let Ok(wallet) = Wallet::cargar_cifrado("wallet.json", &wallet_password()) {
+                blockchain.add_coinbase(wallet.pubkey, 50);
+            }
+
+            println!("Minando bloque...");
+            blockchain.minar();
+            blockchain.guardar("blockchain.json").expect("Error al guardar");
+            println!("Bloque minado exitosamente.");
+        }
         Command::Send { from, to, amount } => {
-            let mut blockchain = Blockchain::cargar("blockchain.json").unwrap_or_else(|_| Blockchain::new_blockchain());
-            let mut tx = Transaction::new(
-                hex::decode(&from).expect("Clave pública inválida").try_into().expect("32 bytes"),
-                hex::decode(&to).expect("Clave pública inválida").try_into().expect("32 bytes"),
-                amount
-            );
-            println!("Enviando {} desde {} a {}...", amount, from, to);
-            let wallet = Wallet::cargar_cifrado("wallet.json", &wallet_password()).expect("Error al cargar la wallet");
+            let mut blockchain = Blockchain::cargar("blockchain.json")
+                .unwrap_or_else(|_| Blockchain::new_blockchain());
+
+            let from_bytes: [u8; 32] = hex::decode(&from)
+                .expect("Clave 'from' inválida")
+                .try_into()
+                .expect("'from' debe ser 32 bytes");
+
+            let to_bytes: [u8; 32] = hex::decode(&to)
+                .expect("Clave 'to' inválida")
+                .try_into()
+                .expect("'to' debe ser 32 bytes");
+
+            let mut tx = Transaction::new(from_bytes, to_bytes, amount);
+
+            let wallet = Wallet::cargar_cifrado("wallet.json", &wallet_password())
+                .expect("Error al cargar la wallet");
             let signing_key = SigningKey::from_bytes(&wallet.secret);
             tx.firmar(&signing_key);
-            blockchain.add_block(vec![tx]);
-            blockchain.guardar("blockchain.json").expect("Error al guardar la blockchain");
+
+            println!("Enviando {} desde {} a {}...", amount, from, to);
+            blockchain.add_transaction(tx).expect("Saldo insuficiente");
+            blockchain.guardar("blockchain.json").expect("Error al guardar");
+            println!("Transacción en mempool. Usá 'mine' para confirmarla.");
         }
     }
 }

@@ -12,6 +12,7 @@ pub enum Command {
     NewWallet,
     ShowChain,
     Validate,
+    Mine,
     Send {
         #[arg(short, long)]
         from: String,
