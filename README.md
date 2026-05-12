@@ -243,7 +243,5 @@ aes-gcm = "0.10"
 - [x] Anti-replay nonce on transactions
 - [x] AES-256-GCM wallet encryption
 - [x] Structured logging with tracing
-- [x] Mempool for pending transactions
-- [x] Proof of Work mining
-- [] Mempool for pending transactions
-- [] Proof of Work mining
+- [ ] Custom error types with thiserror
+- [ ] P2P networking with libp2p
