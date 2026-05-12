@@ -3,7 +3,7 @@ use crate::transactions;
 use sha2::Digest;
 use transactions::Transaction;
 
-pub fn merklee_root(transactions: &[Transaction]) -> String {
+pub fn merkle_root(transactions: &[Transaction]) -> String {
     if transactions.is_empty() {
         return String::new();
     }

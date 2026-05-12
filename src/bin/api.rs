@@ -37,7 +37,8 @@ async fn main() {
         .route("/validar", get(validar))
         .route("/block/:index", get(get_block))
         .route("/wallet", post(wallet))
-        .route("/send", post(send_transaction))
+        .route("/transaction", post(add_to_mempool))
+        .route("/mine", post(mine))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
@@ -65,7 +66,7 @@ async fn wallet()->String {
         pubkey_hex
 }
 
-async fn send_transaction(
+async fn add_to_mempool(
     State(blockchain): State<Arc<Mutex<Blockchain>>>,
     Json(payload): Json<SendPayload>
 ) -> Result<String, (StatusCode, String)> {
@@ -89,20 +90,21 @@ async fn send_transaction(
 
     let signing_key = SigningKey::from_bytes(&wallet.secret);
     tx.firmar(&signing_key);
-    blockchain.add_block(vec![tx]);
-    blockchain.guardar("blockchain.json")
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Error al guardar la blockchain".to_string()))?;
+    blockchain.add_transaction(tx);
 
-    info!(from = %payload.from, to = %payload.to, amount = payload.amount, "Transacción agregada al bloque");
+
+    info!(from = %payload.from, to = %payload.to, amount = payload.amount, "Transacción agregada a mempool");
     Ok("Transacción enviada".to_string())
 }
 
 async fn validar(
     State(blockchain): State<Arc<Mutex<Blockchain>>>
-) -> String {
-    let blockchain = blockchain.lock().unwrap();
-    format!("La cadena de bloques es válida: {}", blockchain.validar())
-}
+) -> Result<String, (StatusCode, String)> {
+    let blockchain = blockchain.lock().map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Error interno".to_string()))?;
+    let resultado = blockchain.validar();
+    info!(valida = resultado, "Validación ejecutada");
+    Ok(format!("La cadena de bloques es válida: {}", resultado))
+}   
 
 async fn get_block(
     State(blockchain): State<Arc<Mutex<Blockchain>>>,
@@ -111,8 +113,20 @@ async fn get_block(
     let blockchain = blockchain.lock()
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Error interno".to_string()))?;
     
-    match blockchain.get_cadena().iter().find(|b| b.get_index() == index) {
-        Some(block) => Ok(Json(serde_json::to_value(block).unwrap())),
+    match blockchain.get_cadena().iter().find(|b| b.index() == index) {
+        Some(block) => Ok(Json(serde_json::to_value(block).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Error al serializar el bloque".to_string()))?)),
         None => Err((StatusCode::NOT_FOUND, format!("Bloque {} no encontrado", index)))
     }
+}
+
+async fn mine(
+    State(blockchain): State<Arc<Mutex<Blockchain>>>
+) -> Result<String, (StatusCode, String)> {
+    let mut blockchain = blockchain.lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Error interno".to_string()))?;
+
+    blockchain.minar(2);
+    blockchain.guardar("blockchain.json").map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Error al guardar la cadena".to_string()))?;
+    info!("Nuevo bloque minado");
+    Ok("Bloque minado exitosamente\n".to_string())
 }

@@ -4,8 +4,7 @@ use ed25519_dalek::Signer;
 use hex;
 use serde::{Serialize, Deserialize};
 
-#[derive(Debug)]
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Transaction {
     #[serde(with = "hex")]
     pub sender: [u8; 32],

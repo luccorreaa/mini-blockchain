@@ -2,50 +2,68 @@
 use ed25519_dalek::SigningKey;
 use ed25519_dalek::{VerifyingKey, Signature, Verifier};
 use serde::{Serialize, Deserialize};
-use crate::merkle::merklee_root;
+use crate::merkle::merkle_root;
 use crate::block::Block;
 use crate::transactions::Transaction;
-#[derive(Debug)]
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Blockchain {
     cadena: Vec<Block>,
+    #[serde(default)]
+    mempool: Vec<Transaction>
 }
 
 impl Blockchain {
     pub fn new_blockchain() -> Blockchain {
         let bloque = Block::new(0, vec![], "");
-        Blockchain { cadena: vec![bloque] }
+        Blockchain { cadena: vec![bloque] 
+        , mempool: vec![] }
     }
 
     pub fn add_block(&mut self, transactions: Vec<Transaction>) {
         match self.cadena.last() {
             Some(bloque) => {
-                let nuevo_bloque = Block::new(bloque.get_index() + 1, transactions, &bloque.get_hash());
+                let nuevo_bloque = Block::new(bloque.index() + 1, transactions, &bloque.hash());
                 self.cadena.push(nuevo_bloque);
             }
             None => {}
         }
     }
+    pub fn add_transaction(&mut self, transaction: Transaction) {
+        self.mempool.push(transaction);
+    }
+    
+    pub fn minar(&mut self, dificultad: usize){
+        match self.cadena.last(){
+            Some(bloque) => {
+                let txs = std::mem::take(&mut self.mempool);
+                let mut nuevo_bloque = Block::new(bloque.index() + 1, txs, &bloque.hash());
+                nuevo_bloque.minar(dificultad); 
+                self.cadena.push(nuevo_bloque);
+            }
+            None => {}
+        }
+
+    }
 
     pub fn validar(&self) -> bool {
         for (i, bloque) in self.cadena.iter().enumerate() {
-            if bloque.get_hash() != bloque.calcular_hash() {
+            if bloque.hash() != bloque.calcular_hash() {
                 return false;
             }
             if i > 0 {
                 let anterior = &self.cadena[i - 1];
-                if bloque.get_hash_previo() != anterior.get_hash() {
+                if bloque.prev_hash() != anterior.hash() {
                     return false;
                 }
             }
-            if let (Some(firma_bytes), Some(autor_bytes)) = (bloque.get_firma(), bloque.get_autor()) {
+            if let (Some(firma_bytes), Some(autor_bytes)) = (bloque.signature(), bloque.author()) {
                 let signature = Signature::from_bytes(&firma_bytes.as_slice().try_into().unwrap());
                 let contenido = format!(
                     "{}{}{}{}",
-                    bloque.get_index(),
-                    merklee_root(bloque.get_datos()),
-                    bloque.get_hash_previo(),
-                    bloque.get_timestamp()
+                    bloque.index(),
+                    merkle_root(bloque.transactions()),
+                    bloque.prev_hash(),
+                    bloque.timestamp()
                 );
                 if let Ok(verifying_key) = VerifyingKey::from_bytes(&autor_bytes) {
                     if verifying_key.verify(contenido.as_bytes(), &signature).is_err() {
@@ -58,7 +76,7 @@ impl Blockchain {
     }
 
     pub fn firmar_bloque(&mut self, index: usize, signing_key: &SigningKey) {
-        if let Some(bloque) = self.cadena.iter_mut().find(|b| b.get_index() as usize == index) {
+        if let Some(bloque) = self.cadena.iter_mut().find(|b| b.index() as usize == index) {
             bloque.firmar(signing_key);
         }
     }
@@ -78,7 +96,7 @@ impl Blockchain {
     }
     #[cfg(test)]
     pub fn corromper_bloque(&mut self, index: usize) {
-    if let Some(bloque) = self.cadena.iter_mut().find(|b| b.get_index() as usize == index) {
+    if let Some(bloque) = self.cadena.iter_mut().find(|b| b.index() as usize == index) {
         bloque.corromper();
     }
 }
