@@ -25,7 +25,7 @@ fn main() {
         Command::ShowChain => {
             let blockchain = Blockchain::cargar("blockchain.json").unwrap_or_else(|_| Blockchain::new_blockchain());
             println!("Mostrando la cadena de bloques...");
-            for bloque in blockchain.get_cadena() {
+            for bloque in blockchain.cadena() {
                 println!("Bloque {}: Hash: {}, Hash Previo: {}, Timestamp: {}, Transacciones: {}", bloque.index(), bloque.hash(), bloque.prev_hash(), bloque.timestamp(), bloque.transactions().len());
             }
         }

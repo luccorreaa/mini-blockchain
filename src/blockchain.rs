@@ -20,12 +20,9 @@ impl Blockchain {
     }
 
     pub fn add_block(&mut self, transactions: Vec<Transaction>) {
-        match self.cadena.last() {
-            Some(bloque) => {
-                let nuevo_bloque = Block::new(bloque.index() + 1, transactions, &bloque.hash());
-                self.cadena.push(nuevo_bloque);
-            }
-            None => {}
+        if let Some(bloque) = self.cadena.last() {
+            let nuevo_bloque = Block::new(bloque.index() + 1, transactions, bloque.hash());
+            self.cadena.push(nuevo_bloque);
         }
     }
     pub fn add_transaction(&mut self, transaction: Transaction) {
@@ -33,16 +30,12 @@ impl Blockchain {
     }
     
     pub fn minar(&mut self, dificultad: usize){
-        match self.cadena.last(){
-            Some(bloque) => {
-                let txs = std::mem::take(&mut self.mempool);
-                let mut nuevo_bloque = Block::new(bloque.index() + 1, txs, &bloque.hash());
-                nuevo_bloque.minar(dificultad); 
-                self.cadena.push(nuevo_bloque);
-            }
-            None => {}
+        if let Some(bloque) = self.cadena.last() {
+            let txs = std::mem::take(&mut self.mempool);
+            let mut nuevo_bloque = Block::new(bloque.index() + 1, txs, bloque.hash());
+            nuevo_bloque.minar(dificultad);
+            self.cadena.push(nuevo_bloque);
         }
-
     }
 
     pub fn validar(&self) -> bool {
@@ -91,7 +84,7 @@ impl Blockchain {
         Ok(blockchain)
     }
 
-    pub fn get_cadena(&self) -> &[Block] {
+    pub fn cadena(&self) -> &[Block] {
         &self.cadena
     }
     #[cfg(test)]
@@ -110,7 +103,7 @@ mod tests{
 use super::*;
 
     #[test]
-    fn mi_test() {
+    fn cadena_corrompida_no_es_valida() {
         let mut blockchain = Blockchain::new_blockchain();
 
         blockchain.add_block(vec![]);

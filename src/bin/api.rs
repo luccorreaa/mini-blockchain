@@ -113,7 +113,7 @@ async fn get_block(
     let blockchain = blockchain.lock()
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Error interno".to_string()))?;
     
-    match blockchain.get_cadena().iter().find(|b| b.index() == index) {
+    match blockchain.cadena().iter().find(|b| b.index() == index) {
         Some(block) => Ok(Json(serde_json::to_value(block).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Error al serializar el bloque".to_string()))?)),
         None => Err((StatusCode::NOT_FOUND, format!("Bloque {} no encontrado", index)))
     }
