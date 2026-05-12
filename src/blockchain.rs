@@ -5,6 +5,7 @@ use serde::{Serialize, Deserialize};
 use crate::merkle::merkle_root;
 use crate::block::Block;
 use crate::transactions::Transaction;
+use hex;
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Blockchain {
     cadena: Vec<Block>,
@@ -49,8 +50,45 @@ impl Blockchain {
                     return false;
                 }
             }
+
+            // Verificar firma de cada transacción
+            for tx in bloque.transactions() {
+                if tx.sender == [0u8; 32] {
+                    continue; // coinbase: no requiere firma
+                }
+                if let Some(firma_bytes) = &tx.firma {
+                    let sig_array: [u8; 64] = match firma_bytes.as_slice().try_into() {
+                        Ok(arr) => arr,
+                        Err(_) => return false,
+                    };
+                    let signature = Signature::from_bytes(&sig_array);
+                    let contenido = format!(
+                        "{}{}{}{}",
+                        hex::encode(tx.sender),
+                        hex::encode(tx.receiver),
+                        tx.amount,
+                        tx.nonce
+                    );
+                    match VerifyingKey::from_bytes(&tx.sender) {
+                        Ok(verifying_key) => {
+                            if verifying_key.verify(contenido.as_bytes(), &signature).is_err() {
+                                return false;
+                            }
+                        }
+                        Err(_) => return false,
+                    }
+                } else {
+                    return false; // tx sin firma → inválida
+                }
+            }
+
+            // Verificar firma del bloque (si tiene)
             if let (Some(firma_bytes), Some(autor_bytes)) = (bloque.signature(), bloque.author()) {
-                let signature = Signature::from_bytes(&firma_bytes.as_slice().try_into().unwrap());
+                let sig_array: [u8; 64] = match firma_bytes.as_slice().try_into() {
+                    Ok(arr) => arr,
+                    Err(_) => return false,
+                };
+                let signature = Signature::from_bytes(&sig_array);
                 let contenido = format!(
                     "{}{}{}{}",
                     bloque.index(),
@@ -58,10 +96,13 @@ impl Blockchain {
                     bloque.prev_hash(),
                     bloque.timestamp()
                 );
-                if let Ok(verifying_key) = VerifyingKey::from_bytes(&autor_bytes) {
-                    if verifying_key.verify(contenido.as_bytes(), &signature).is_err() {
-                        return false;
+                match VerifyingKey::from_bytes(&autor_bytes) {
+                    Ok(verifying_key) => {
+                        if verifying_key.verify(contenido.as_bytes(), &signature).is_err() {
+                            return false;
+                        }
                     }
+                    Err(_) => return false,
                 }
             }
         }
@@ -111,5 +152,16 @@ use super::*;
         assert!(blockchain.validar());
         blockchain.corromper_bloque(1);
         assert!(!blockchain.validar());
+    }
+
+    #[test]
+    fn validar_no_panic_con_firma_de_longitud_incorrecta() {
+        let mut blockchain = Blockchain::new_blockchain();
+        blockchain.add_block(vec![]);
+        if let Some(bloque) = blockchain.cadena.iter_mut().find(|b| b.index() == 1) {
+            bloque.set_firma_test(vec![0u8; 10]); // longitud incorrecta: antes causaba panic
+            bloque.set_autor_test([1u8; 32]); // necesario para activar la verificación de firma
+        }
+        assert!(!blockchain.validar()); // no debe paniquear, debe retornar false
     }
 }

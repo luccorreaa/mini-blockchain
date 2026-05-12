@@ -73,6 +73,11 @@ impl Block {
     pub fn set_firma_test(&mut self, firma: Vec<u8>) {
         self.firma = Some(firma);
     }
+
+    #[cfg(test)]
+    pub fn set_autor_test(&mut self, autor: [u8; 32]) {
+        self.autor = Some(autor);
+    }
 }
 
 #[cfg(test)]
