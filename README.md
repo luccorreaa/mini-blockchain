@@ -1,24 +1,48 @@
-# Mini Blockchain in Rust
+<div align="center">
 
-A blockchain implementation built from scratch in Rust, focused on understanding the cryptographic primitives used in real networks like Solana and Bitcoin.
+# ⛓️ mini-blockchain
 
-## Features
+A blockchain built from scratch in Rust — cryptographic primitives, peer-to-peer networking, and a REST API, all in one project.
 
-- **Block chain** — linked blocks via SHA-256 hashes, with full chain validation
-- **Structured transactions** — each block contains a `Vec<Transaction>` with sender, receiver, amount, and individual signature
-- **Ed25519 digital signatures** — blocks and transactions are signed independently; each transaction is signed by its sender's private key
-- **Multiple signers** — each participant has their own keypair generated with `OsRng`, a cryptographically secure random number generator
-- **Merkle tree** — transactions in each block are hashed using an iterative bottom-up Merkle tree; the Merkle Root is used in both block hashing and block signing
-- **JSON persistence** — the chain can be saved to disk and loaded back with full integrity
-- **CLI interface** — interact with the blockchain from the terminal using `clap`
-- **REST API** — expose the blockchain over HTTP with `axum` and `tokio`; concurrent read access via `Arc<RwLock<Blockchain>>`
-- **Proof of Work** — configurable difficulty; blocks are mined by incrementing a nonce until the hash starts with N zero characters
-- **Mempool** — transactions are staged in a pending pool before being confirmed in a block via mining
-- **Balance tracking** — `balance_of()` scans the chain and pending mempool to compute spendable balance; double-spend attempts are rejected
-- **Coinbase transactions** — miners receive a 50-token block reward via a special unsigned transaction (sender = zero key)
-- **Anti-replay nonce** — each transaction includes a cryptographically random `u64` nonce included in its signature, preventing replay attacks
-- **AES-256-GCM wallet encryption** — private keys are stored on disk encrypted with AES-256-GCM; key is derived from a password via SHA-256
-- **Structured logging** — request and event logs via `tracing` + `tracing-subscriber`; log level controlled with `RUST_LOG`
+<a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2024-orange.svg?logo=rust&logoColor=white" alt="Rust 2024"/></a>
+<a href="https://github.com/libp2p/rust-libp2p"><img src="https://img.shields.io/badge/libp2p-0.54-blue.svg" alt="libp2p 0.54"/></a>
+<a href="https://docs.rs/axum"><img src="https://img.shields.io/badge/axum-0.7-purple.svg" alt="axum 0.7"/></a>
+<a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-brightgreen.svg" alt="License MIT"/></a>
+
+</div>
+
+---
+
+## What is this
+
+mini-blockchain is a fully functional blockchain node implemented from scratch in Rust. There is no central server. Nodes discover each other on the local network, synchronize their chains automatically, and propagate new blocks and transactions through the mesh.
+
+The project covers three layers:
+
+- **Cryptographic core** — SHA-256 chain linking, Ed25519 transaction and block signatures, Merkle tree, AES-256-GCM wallet encryption, and Proof of Work mining.
+- **REST API** — expose the blockchain over HTTP. Concurrent read access via `Arc<RwLock<Blockchain>>`. Mining runs in `spawn_blocking` so it never blocks the async runtime.
+- **P2P network** — nodes discover each other via mDNS, synchronize chains using request/response, and broadcast new blocks and transactions with Gossipsub.
+
+---
+
+## Architecture
+
+```
+src/
+├── lib.rs            # Library crate — shared modules
+├── main.rs           # Binary: CLI (clap)
+├── bin/
+│   ├── api.rs        # Binary: REST API (axum + tokio)
+│   └── node.rs       # Binary: P2P node (libp2p)
+├── block.rs          # Block struct, PoW mining, signing, hash calculation
+├── blockchain.rs     # Chain, mempool, balance tracking, validation, persistence
+├── transactions.rs   # Transaction struct, Ed25519 signatures, anti-replay nonce
+├── merkle.rs         # Iterative bottom-up Merkle tree
+├── wallet.rs         # Keypair generation, AES-256-GCM encryption
+└── cli.rs            # CLI commands
+```
+
+---
 
 ## Cryptographic Primitives
 
@@ -29,21 +53,7 @@ A blockchain implementation built from scratch in Rust, focused on understanding
 | AES-256-GCM (`aes-gcm`) | Symmetric encryption of the wallet's private key at rest |
 | `OsRng` (`rand`) | Cryptographically secure key generation and nonce generation |
 
-## Project Structure
-
-```
-src/
-├── lib.rs            # Library crate — shared modules
-├── main.rs           # Binary: CLI dispatch
-├── bin/
-│   └── api.rs        # Binary: REST API (axum + tokio)
-├── block.rs          # Block struct with hash calculation, PoW mining, signing, getters
-├── blockchain.rs     # Blockchain struct with mempool, balance tracking, validation, persistence
-├── transactions.rs   # Transaction struct with individual Ed25519 signatures and nonce
-├── merkle.rs         # Merkle tree — iterative bottom-up construction, handles odd counts
-├── wallet.rs         # Wallet keypair, AES-256-GCM encryption, saved to disk as JSON
-└── cli.rs            # CLI commands: new-wallet, show-chain, validate, send, mine
-```
+---
 
 ## How It Works
 
@@ -53,24 +63,13 @@ Each block contains:
 - `index` — position in the chain
 - `transacciones` — list of signed transactions
 - `hash_previo` — hash of the previous block
-- `hash` — SHA-256 of `index + merkle_root + hash_previo + timestamp + nonce`
+- `hash` — SHA-256 of `index + merkle_root + prev_hash + timestamp + nonce`
 - `timestamp` — Unix epoch seconds
-- `nonce` — counter incremented during Proof of Work mining
+- `nonce` — counter incremented during Proof of Work
 - `firma` — Ed25519 signature of the block by its author
 - `autor` — public key (32 bytes) of the block's signer
 
-### Transaction structure
-
-Each transaction contains:
-- `sender` — public key of the sender (32 bytes, stored as hex in JSON); all-zero key denotes a coinbase
-- `receiver` — public key of the receiver (32 bytes, stored as hex in JSON)
-- `amount` — amount transferred (`u64`)
-- `nonce` — random `u64` included in the signature to prevent replay attacks
-- `firma` — Ed25519 signature of `sender + receiver + amount + nonce` by the sender
-
 ### Merkle tree
-
-Transactions within a block are hashed using an iterative bottom-up Merkle tree:
 
 ```
            Merkle Root
@@ -83,23 +82,19 @@ Transactions within a block are hashed using an iterative bottom-up Merkle tree:
      tx1       tx2       tx3       tx4
 ```
 
-Each leaf is the SHA-256 of a transaction's `sender + receiver + amount`. Pairs are concatenated and hashed level by level until one hash remains — the Merkle Root. If a level has an odd number of nodes, the last one is duplicated.
-
-The Merkle Root is used in both `calcular_hash` and `firmar`, ensuring that any change to any transaction invalidates both the block hash and the block signature.
+Each leaf is the SHA-256 of a transaction's `sender + receiver + amount`. Pairs are concatenated and hashed level by level until one hash remains. If a level has an odd number of nodes, the last one is duplicated. The Merkle Root is used in both `calcular_hash` and `firmar`, ensuring any change to any transaction invalidates both the block hash and the block signature.
 
 ### Proof of Work
 
-Mining increments the block's `nonce` field and recalculates the SHA-256 hash until it starts with `difficulty` zero characters:
-
 ```
-target  = "0".repeat(difficulty)   // e.g. "00" for difficulty 2
+target = "0".repeat(difficulty)   // e.g. "00" for difficulty 2
 loop:
     nonce += 1
     hash   = SHA-256(index + merkle_root + prev_hash + timestamp + nonce)
 until hash.starts_with(target)
 ```
 
-Difficulty is stored in the `Blockchain` struct and defaults to `2`. In the API server, the heavy PoW loop runs inside `tokio::task::spawn_blocking` so it never blocks the async runtime.
+Difficulty is stored in the `Blockchain` struct and defaults to `2`. In the API server, the PoW loop runs inside `tokio::task::spawn_blocking` so it never blocks the async runtime.
 
 ### Mempool & Transaction lifecycle
 
@@ -114,40 +109,66 @@ mine (CLI / POST /mine)
   └── push block → save to disk
 ```
 
-### Balance tracking
+### P2P node
 
-`Blockchain::balance_of(pubkey)` walks every confirmed block and every pending mempool entry, summing credits and debits. `add_transaction()` calls `balance_of` before accepting a new transaction, rejecting it if the sender's available balance is insufficient.
+```
+Node starts
+  └── listen on TCP (random port)
+  └── subscribe to "blocks" and "transactions" topics
+
+mDNS discovers peer
+  └── dial peer
+  └── ConnectionEstablished → send ChainRequest
+
+ChainRequest received
+  └── respond with full Blockchain
+
+ChainResponse received
+  └── if longer and valid → adopt + save
+
+"mine" typed in stdin
+  └── mine locally → publish block via Gossipsub
+
+"tx <from> <to> <amount>" typed in stdin
+  └── create transaction → publish via Gossipsub
+
+Gossipsub message received
+  ├── topic "blocks"       → push_block + save
+  └── topic "transactions" → add_transaction
+```
 
 ### Wallet encryption
 
-Wallets are stored encrypted with AES-256-GCM:
-
 1. A 32-byte AES key is derived from the user's password via SHA-256.
 2. A fresh 12-byte nonce is generated with `OsRng` on every save.
-3. Only the 32-byte private key is encrypted; the public key is stored alongside the ciphertext in plaintext (it is not secret).
+3. Only the 32-byte private key is encrypted; the public key is stored in plaintext (it is not secret).
 
-The `WALLET_PASSWORD` environment variable provides the password. If unset, the default `dev_password_change_me` is used (suitable for development only).
+The `WALLET_PASSWORD` environment variable provides the password. If unset, `dev_password_change_me` is used (development only).
 
 ### Chain validation
 
 `Blockchain::validar()` checks every block:
-
-1. The stored hash matches the recalculated hash (integrity)
-2. `hash_previo` matches the actual hash of the previous block (chain linking)
+1. The stored hash matches the recalculated hash
+2. `hash_previo` matches the actual hash of the previous block
 3. Every non-coinbase transaction has a valid Ed25519 signature against its sender key
 4. If the block is signed, the block's Ed25519 signature is valid against the stored author key
+
+---
 
 ## CLI Usage
 
 ```bash
 # Generate a new wallet (saved encrypted to wallet.json)
-cargo run --bin mini_blockchain -- new-wallet
+WALLET_PASSWORD=<password> cargo run --bin mini_blockchain -- new-wallet
 
 # Send a transaction (adds to mempool, checks balance)
-cargo run --bin mini_blockchain -- send --from <sender_pubkey_hex> --to <receiver_pubkey_hex> --amount <amount>
+WALLET_PASSWORD=<password> cargo run --bin mini_blockchain -- send \
+  --from <sender_pubkey_hex> \
+  --to <receiver_pubkey_hex> \
+  --amount <amount>
 
 # Mine pending transactions into a new block
-cargo run --bin mini_blockchain -- mine
+WALLET_PASSWORD=<password> cargo run --bin mini_blockchain -- mine
 
 # Show all blocks
 cargo run --bin mini_blockchain -- show-chain
@@ -156,16 +177,16 @@ cargo run --bin mini_blockchain -- show-chain
 cargo run --bin mini_blockchain -- validate
 ```
 
-> Set `WALLET_PASSWORD=<your_password>` before running any command that reads or writes `wallet.json`.
+---
 
 ## REST API
 
 ```bash
 # Start the API server
-cargo run --bin api
+WALLET_PASSWORD=<password> cargo run --bin api
 
 # Control log level
-RUST_LOG=debug cargo run --bin api
+RUST_LOG=debug WALLET_PASSWORD=<password> cargo run --bin api
 ```
 
 | Method | Endpoint        | Description                                                         |
@@ -177,41 +198,42 @@ RUST_LOG=debug cargo run --bin api
 | POST   | `/transaction`  | Signs a transaction and adds it to the mempool                      |
 | POST   | `/mine`         | Mines pending mempool transactions into a new block                 |
 
-### POST /transaction — Request body
-
-```json
-{
-  "from": "<sender_pubkey_hex>",
-  "to": "<receiver_pubkey_hex>",
-  "amount": 100
-}
-```
-
 ### Example flow
 
 ```bash
-# Generate a wallet
 curl -X POST http://localhost:3000/wallet
 
-# Stage a transaction in the mempool
 curl -X POST http://localhost:3000/transaction \
   -H "Content-Type: application/json" \
   -d '{"from":"<pubkey>","to":"<pubkey>","amount":100}'
 
-# Mine pending transactions
 curl -X POST http://localhost:3000/mine
 
-# Inspect the chain
 curl http://localhost:3000/chain
-
-# Get a specific block
-curl http://localhost:3000/block/0
 ```
+
+---
+
+## P2P Node
+
+```bash
+# Start a node (run multiple instances in separate terminals)
+cargo run --bin node
+```
+
+Once running, two or more nodes on the same network will discover each other automatically via mDNS, synchronize their chains, and keep each other updated in real time.
+
+Available stdin commands:
+```
+mine                          mine a block and broadcast it to all peers
+tx <from_hex> <to_hex> <amt>  create and broadcast a transaction
+```
+
+---
 
 ## Dependencies
 
 ```toml
-[dependencies]
 sha2 = "0.10"
 hex = { version = "0.4", features = ["serde"] }
 ed25519-dalek = "2.0"
@@ -224,24 +246,26 @@ tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 aes-gcm = "0.10"
+libp2p = { version = "0.54", features = ["mdns", "gossipsub", "tokio", "tcp", "noise", "yamux", "macros", "request-response", "cbor"] }
 ```
+
+---
 
 ## Roadmap
 
 - [x] Block chain with SHA-256 linking
-- [x] Ed25519 block signatures
-- [x] Structured transactions with individual signatures
-- [x] Multiple signers
-- [x] JSON persistence with serde
+- [x] Ed25519 block and transaction signatures
 - [x] Merkle tree for transaction hashing
+- [x] JSON persistence with serde
 - [x] CLI interface with clap
-- [x] REST API with axum
+- [x] REST API with axum + RwLock + spawn_blocking
 - [x] Proof of Work with configurable difficulty
-- [x] Mempool for pending transactions
-- [x] Balance tracking and double-spend prevention
+- [x] Mempool and double-spend prevention
+- [x] Balance tracking per address
 - [x] Coinbase transactions (block rewards)
 - [x] Anti-replay nonce on transactions
 - [x] AES-256-GCM wallet encryption
 - [x] Structured logging with tracing
+- [x] P2P networking with libp2p (mDNS + Gossipsub + request/response)
 - [ ] Custom error types with thiserror
-- [ ] P2P networking with libp2p
+- [ ] Block and transaction validation on P2P receive
