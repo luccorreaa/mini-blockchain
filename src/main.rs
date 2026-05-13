@@ -1,4 +1,3 @@
-//main.rs
 mod cli;
 use crate::cli::{Cli, Command};
 use clap::Parser;
@@ -9,6 +8,8 @@ use mini_blockchain::blockchain::Blockchain;
 use mini_blockchain::wallet::Wallet;
 use mini_blockchain::transactions::Transaction;
 
+/// Returns the wallet encryption password from the `WALLET_PASSWORD` environment variable,
+/// falling back to an insecure development default when the variable is not set.
 fn wallet_password() -> String {
     std::env::var("WALLET_PASSWORD").unwrap_or_else(|_| "dev_password_change_me".to_string())
 }
@@ -18,7 +19,7 @@ fn main() {
     match cli.command {
         Command::NewWallet => {
             if std::path::Path::new("wallet.json").exists() {
-                eprintln!("Ya existe una wallet. Eliminá wallet.json antes de generar una nueva.");
+                eprintln!("A wallet already exists. Remove wallet.json before generating a new one.");
                 std::process::exit(1);
             }
             let mut secret = [0u8; 32];
@@ -26,60 +27,66 @@ fn main() {
             let signing_key = SigningKey::from_bytes(&secret);
             let pubkey = signing_key.verifying_key().to_bytes();
             let wallet = Wallet::new(secret, pubkey);
-            wallet.guardar_cifrado("wallet.json", &wallet_password()).expect("Error al guardar la wallet");
-            println!("Generando nueva wallet...");
-            println!("Clave pública: {}", hex::encode(pubkey));
+            wallet.save_encrypted("wallet.json", &wallet_password())
+                .expect("Failed to save wallet");
+            println!("Generating new wallet...");
+            println!("Public key: {}", hex::encode(pubkey));
         }
         Command::ShowChain => {
-            let blockchain = Blockchain::cargar("blockchain.json").unwrap_or_else(|_| Blockchain::new_blockchain());
-            println!("Mostrando la cadena de bloques...");
-            for bloque in blockchain.cadena() {
-                println!("Bloque {}: Hash: {}, Hash Previo: {}, Timestamp: {}, Transacciones: {}", bloque.index(), bloque.hash(), bloque.prev_hash(), bloque.timestamp(), bloque.transactions().len());
+            let blockchain = Blockchain::load("blockchain.json")
+                .unwrap_or_else(|_| Blockchain::new());
+            println!("Showing blockchain...");
+            for block in blockchain.chain() {
+                println!(
+                    "Block {}: Hash: {}, Prev Hash: {}, Timestamp: {}, Transactions: {}",
+                    block.index(), block.hash(), block.prev_hash(),
+                    block.timestamp(), block.transactions().len()
+                );
             }
         }
         Command::Validate => {
-            let blockchain = Blockchain::cargar("blockchain.json").unwrap_or_else(|_| Blockchain::new_blockchain());
-            println!("Validando la cadena de bloques...");
-            println!("La cadena de bloques es válida: {}", blockchain.validar());
+            let blockchain = Blockchain::load("blockchain.json")
+                .unwrap_or_else(|_| Blockchain::new());
+            println!("Validating blockchain...");
+            println!("Chain is valid: {}", blockchain.validate());
         }
         Command::Mine => {
-            let mut blockchain = Blockchain::cargar("blockchain.json")
-                .unwrap_or_else(|_| Blockchain::new_blockchain());
+            let mut blockchain = Blockchain::load("blockchain.json")
+                .unwrap_or_else(|_| Blockchain::new());
 
-            if let Ok(wallet) = Wallet::cargar_cifrado("wallet.json", &wallet_password()) {
+            if let Ok(wallet) = Wallet::load_encrypted("wallet.json", &wallet_password()) {
                 blockchain.add_coinbase(wallet.pubkey, 50);
             }
 
-            println!("Minando bloque...");
-            blockchain.minar();
-            blockchain.guardar("blockchain.json").expect("Error al guardar");
-            println!("Bloque minado exitosamente.");
+            println!("Mining block...");
+            blockchain.mine();
+            blockchain.save("blockchain.json").expect("Failed to save blockchain");
+            println!("Block mined successfully.");
         }
         Command::Send { from, to, amount } => {
-            let mut blockchain = Blockchain::cargar("blockchain.json")
-                .unwrap_or_else(|_| Blockchain::new_blockchain());
+            let mut blockchain = Blockchain::load("blockchain.json")
+                .unwrap_or_else(|_| Blockchain::new());
 
             let from_bytes: [u8; 32] = hex::decode(&from)
-                .expect("Clave 'from' inválida")
+                .expect("Invalid 'from' key")
                 .try_into()
-                .expect("'from' debe ser 32 bytes");
+                .expect("'from' must be 32 bytes");
 
             let to_bytes: [u8; 32] = hex::decode(&to)
-                .expect("Clave 'to' inválida")
+                .expect("Invalid 'to' key")
                 .try_into()
-                .expect("'to' debe ser 32 bytes");
+                .expect("'to' must be 32 bytes");
 
             let mut tx = Transaction::new(from_bytes, to_bytes, amount);
-
-            let wallet = Wallet::cargar_cifrado("wallet.json", &wallet_password())
-                .expect("Error al cargar la wallet");
+            let wallet = Wallet::load_encrypted("wallet.json", &wallet_password())
+                .expect("Failed to load wallet");
             let signing_key = SigningKey::from_bytes(&wallet.secret);
-            tx.firmar(&signing_key);
+            tx.sign(&signing_key);
 
-            println!("Enviando {} desde {} a {}...", amount, from, to);
-            blockchain.add_transaction(tx).expect("Saldo insuficiente");
-            blockchain.guardar("blockchain.json").expect("Error al guardar");
-            println!("Transacción en mempool. Usá 'mine' para confirmarla.");
+            println!("Sending {} from {} to {}...", amount, from, to);
+            blockchain.add_transaction(tx).expect("Insufficient balance");
+            blockchain.save("blockchain.json").expect("Failed to save blockchain");
+            println!("Transaction in mempool. Run 'mine' to confirm it.");
         }
     }
 }
