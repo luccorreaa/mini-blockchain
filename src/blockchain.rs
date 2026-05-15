@@ -10,7 +10,8 @@ use ed25519_dalek::{VerifyingKey, Signature, Verifier};
 use serde::{Serialize, Deserialize};
 use crate::merkle::merkle_root;
 use crate::block::Block;
-use crate::transactions::Transaction;
+use crate::crypto::transaction::Transaction;
+use crate::types::PublicKey;
 use hex;
 
 /// An append-only chain of [`Block`]s with a pending-transaction mempool.
@@ -58,18 +59,18 @@ impl Blockchain {
         let mut balance = 0u64;
         for block in &self.chain {
             for tx in block.transactions() {
-                if tx.sender != [0u8; 32] && &tx.sender == pubkey {
-                    balance = balance.saturating_sub(tx.amount);
+                if !tx.sender().is_coinbase() && tx.sender().as_bytes() == pubkey {
+                    balance = balance.saturating_sub(tx.amount());
                 }
-                if &tx.receiver == pubkey {
-                    balance = balance.saturating_add(tx.amount);
+                if tx.receiver().as_bytes() == pubkey {
+                    balance = balance.saturating_add(tx.amount());
                 }
             }
         }
         // Subtract committed mempool spends so callers see available, not just confirmed, balance.
         for tx in &self.mempool {
-            if tx.sender != [0u8; 32] && &tx.sender == pubkey {
-                balance = balance.saturating_sub(tx.amount);
+            if !tx.sender().is_coinbase() && tx.sender().as_bytes() == pubkey {
+                balance = balance.saturating_sub(tx.amount());
             }
         }
         balance
@@ -78,8 +79,8 @@ impl Blockchain {
     /// Inserts a coinbase transaction (miner reward) at the front of the mempool.
     ///
     /// Coinbase transactions use the all-zero sender and bypass balance checks.
-    pub fn add_coinbase(&mut self, miner: [u8; 32], reward: u64) {
-        let coinbase = Transaction::new([0u8; 32], miner, reward);
+    pub fn add_coinbase(&mut self, miner: PublicKey, reward: u64) {
+        let coinbase = Transaction::new(PublicKey::coinbase(), miner, reward);
         self.mempool.insert(0, coinbase);
     }
 
@@ -89,12 +90,12 @@ impl Blockchain {
     ///
     /// Returns an error string if the sender's available balance is less than `transaction.amount`.
     pub fn add_transaction(&mut self, transaction: Transaction) -> Result<(), String> {
-        if transaction.sender != [0u8; 32] {
-            let available = self.balance_of(&transaction.sender);
-            if available < transaction.amount {
+        if !transaction.sender().is_coinbase() {
+            let available = self.balance_of(transaction.sender().as_bytes());
+            if available < transaction.amount() {
                 return Err(format!(
                     "Insufficient balance: available {}, required {}",
-                    available, transaction.amount
+                    available, transaction.amount()
                 ));
             }
         }
@@ -153,23 +154,23 @@ impl Blockchain {
             }
 
             for tx in block.transactions() {
-                if tx.sender == [0u8; 32] {
+                if tx.sender().is_coinbase() {
                     continue; // coinbase: no signature required
                 }
-                if let Some(sig_bytes) = &tx.signature {
-                    let sig_array: [u8; 64] = match sig_bytes.as_slice().try_into() {
+                if let Some(sig_bytes) = tx.signature() {
+                    let sig_array: [u8; 64] = match sig_bytes.try_into() {
                         Ok(arr) => arr,
                         Err(_) => return false,
                     };
                     let signature = Signature::from_bytes(&sig_array);
                     let content = format!(
                         "{}{}{}{}",
-                        hex::encode(tx.sender),
-                        hex::encode(tx.receiver),
-                        tx.amount,
-                        tx.nonce
+                        hex::encode(tx.sender().as_bytes()),
+                        hex::encode(tx.receiver().as_bytes()),
+                        tx.amount(),
+                        tx.nonce()
                     );
-                    match VerifyingKey::from_bytes(&tx.sender) {
+                    match VerifyingKey::from_bytes(tx.sender().as_bytes()) {
                         Ok(verifying_key) => {
                             if verifying_key.verify(content.as_bytes(), &signature).is_err() {
                                 return false;
@@ -265,24 +266,24 @@ mod tests {
     #[test]
     fn add_transaction_rechaza_si_saldo_insuficiente() {
         let mut blockchain = Blockchain::new();
-        let tx = Transaction::new([1u8; 32], [2u8; 32], 100);
+        let tx = Transaction::new(PublicKey([1u8; 32]), PublicKey([2u8; 32]), 100);
         assert!(blockchain.add_transaction(tx).is_err());
     }
 
     #[test]
     fn add_coinbase_agrega_a_mempool_sin_validar_saldo() {
         let mut blockchain = Blockchain::new();
-        blockchain.add_coinbase([3u8; 32], 50);
+        blockchain.add_coinbase(PublicKey([3u8; 32]), 50);
         assert_eq!(blockchain.mempool.len(), 1);
     }
 
     #[test]
     fn balance_aumenta_tras_minar_coinbase() {
         let mut blockchain = Blockchain::new();
-        let miner = [3u8; 32];
+        let miner = PublicKey([3u8; 32]);
         blockchain.add_coinbase(miner, 50);
         blockchain.mine();
-        assert_eq!(blockchain.balance_of(&miner), 50);
+        assert_eq!(blockchain.balance_of(miner.as_bytes()), 50);
     }
 
     #[test]

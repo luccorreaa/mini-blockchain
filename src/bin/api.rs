@@ -18,9 +18,10 @@
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use mini_blockchain::blockchain::Blockchain;
-use mini_blockchain::wallet::Wallet;
-use mini_blockchain::transactions::Transaction;
+use mini_blockchain::crypto::wallet::Wallet;
+use mini_blockchain::crypto::transaction::Transaction;
 use mini_blockchain::block::Block;
+use mini_blockchain::types::PublicKey;
 use axum::{Router, routing::{get, post}, extract::State, Json};
 use axum::extract::Path;
 use axum::http::StatusCode;
@@ -101,8 +102,8 @@ async fn new_wallet() -> Result<String, (StatusCode, String)> {
     let mut secret = [0u8; 32];
     OsRng.fill_bytes(&mut secret);
     let signing_key = SigningKey::from_bytes(&secret);
-    let pubkey = signing_key.verifying_key().to_bytes();
-    let pubkey_hex = hex::encode(pubkey);
+    let pubkey = PublicKey(signing_key.verifying_key().to_bytes());
+    let pubkey_hex = pubkey.to_string();
     let w = Wallet::new(secret, pubkey);
     w.save_encrypted("wallet.json", &wallet_password())
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to save wallet".to_string()))?;
@@ -118,12 +119,12 @@ async fn add_to_mempool(
     State(blockchain): State<AppState>,
     Json(payload): Json<SendPayload>,
 ) -> Result<String, (StatusCode, String)> {
-    let from: [u8; 32] = hex::decode(&payload.from)
+    let from_bytes: [u8; 32] = hex::decode(&payload.from)
         .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid 'from' key".to_string()))?
         .try_into()
         .map_err(|_| (StatusCode::BAD_REQUEST, "'from' must be 32 bytes".to_string()))?;
 
-    let to: [u8; 32] = hex::decode(&payload.to)
+    let to_bytes: [u8; 32] = hex::decode(&payload.to)
         .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid 'to' key".to_string()))?
         .try_into()
         .map_err(|_| (StatusCode::BAD_REQUEST, "'to' must be 32 bytes".to_string()))?;
@@ -132,7 +133,7 @@ async fn add_to_mempool(
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to load wallet".to_string()))?;
     let signing_key = SigningKey::from_bytes(&wallet.secret);
 
-    let mut tx = Transaction::new(from, to, payload.amount);
+    let mut tx = Transaction::new(PublicKey(from_bytes), PublicKey(to_bytes), payload.amount);
     tx.sign(&signing_key);
 
     let mut bc = blockchain.write().await;

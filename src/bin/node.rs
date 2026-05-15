@@ -22,6 +22,8 @@ use libp2p::futures::StreamExt;
 use tokio::io::{self, AsyncBufReadExt};
 use serde::{Serialize, Deserialize};
 use mini_blockchain::blockchain::Blockchain;
+use mini_blockchain::crypto::transaction::Transaction;
+use mini_blockchain::types::PublicKey;
 use std::collections::HashSet;
 use std::time::Duration;
 use tracing::{error, info, warn};
@@ -146,7 +148,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                         }
                     } else if message.topic == tx_topic_hash {
-                        if let Ok(tx) = serde_json::from_slice::<mini_blockchain::transactions::Transaction>(&message.data) {
+                        if let Ok(tx) = serde_json::from_slice::<Transaction>(&message.data) {
                             if let Err(e) = blockchain.add_transaction(tx) {
                                 warn!("Transaction from {propagation_source} rejected: {e}");
                             } else {
@@ -198,7 +200,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     let to = hex::decode(parts[2]).ok()
                                         .and_then(|b| b.try_into().ok());
                                     if let (Some(from), Some(to)) = (from, to) {
-                                        let tx = mini_blockchain::transactions::Transaction::new(from, to, amount);
+                                        let tx = Transaction::new(PublicKey(from), PublicKey(to), amount);
                                         if let Ok(bytes) = serde_json::to_vec(&tx) {
                                             swarm.behaviour_mut().gossipsub.publish(tx_topic.clone(), bytes).ok();
                                         }

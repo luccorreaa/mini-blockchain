@@ -5,8 +5,9 @@ use ed25519_dalek::SigningKey;
 use rand::rngs::OsRng;
 use rand::RngCore;
 use mini_blockchain::blockchain::Blockchain;
-use mini_blockchain::wallet::Wallet;
-use mini_blockchain::transactions::Transaction;
+use mini_blockchain::crypto::wallet::Wallet;
+use mini_blockchain::crypto::transaction::Transaction;
+use mini_blockchain::types::PublicKey;
 
 /// Returns the wallet encryption password from the `WALLET_PASSWORD` environment variable,
 /// falling back to an insecure development default when the variable is not set.
@@ -25,12 +26,12 @@ fn main() {
             let mut secret = [0u8; 32];
             OsRng.fill_bytes(&mut secret);
             let signing_key = SigningKey::from_bytes(&secret);
-            let pubkey = signing_key.verifying_key().to_bytes();
+            let pubkey = PublicKey(signing_key.verifying_key().to_bytes());
             let wallet = Wallet::new(secret, pubkey);
             wallet.save_encrypted("wallet.json", &wallet_password())
                 .expect("Failed to save wallet");
             println!("Generating new wallet...");
-            println!("Public key: {}", hex::encode(pubkey));
+            println!("Public key: {}", pubkey);
         }
         Command::ShowChain => {
             let blockchain = Blockchain::load("blockchain.json")
@@ -77,7 +78,7 @@ fn main() {
                 .try_into()
                 .expect("'to' must be 32 bytes");
 
-            let mut tx = Transaction::new(from_bytes, to_bytes, amount);
+            let mut tx = Transaction::new(PublicKey(from_bytes), PublicKey(to_bytes), amount);
             let wallet = Wallet::load_encrypted("wallet.json", &wallet_password())
                 .expect("Failed to load wallet");
             let signing_key = SigningKey::from_bytes(&wallet.secret);

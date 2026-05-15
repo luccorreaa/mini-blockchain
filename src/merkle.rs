@@ -4,9 +4,8 @@
 //! transactions. The root is included in each block's hash to commit to its complete
 //! transaction set without storing all transactions in the header.
 
-use crate::transactions;
+use crate::crypto::transaction::Transaction;
 use sha2::Digest;
-use transactions::Transaction;
 
 /// Computes the SHA-256 Merkle root of `transactions`.
 ///
@@ -19,10 +18,10 @@ pub fn merkle_root(transactions: &[Transaction]) -> String {
     let mut hashes: Vec<String> = transactions.iter().map(|tx| {
         let content = format!(
             "{}{}{}{}",
-            hex::encode(tx.sender),
-            hex::encode(tx.receiver),
-            tx.amount,
-            tx.nonce
+            hex::encode(tx.sender().as_bytes()),
+            hex::encode(tx.receiver().as_bytes()),
+            tx.amount(),
+            tx.nonce()
         );
         let mut hasher = sha2::Sha256::new();
         hasher.update(content.as_bytes());

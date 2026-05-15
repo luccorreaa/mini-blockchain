@@ -9,7 +9,7 @@ use ed25519_dalek::SigningKey;
 use ed25519_dalek::Signer;
 use sha2::{Sha256, Digest};
 use std::time::SystemTime;
-use crate::transactions::Transaction;
+use crate::crypto::transaction::Transaction;
 use serde::{Serialize, Deserialize};
 use crate::merkle::merkle_root;
 
@@ -130,6 +130,7 @@ impl Block {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::PublicKey;
 
     #[test]
     fn hash_es_consistente_al_recalcular() {
@@ -141,7 +142,7 @@ mod tests {
     fn hash_cambia_al_agregar_transaccion() {
         let mut block = Block::new(0, vec![], "0");
         let hash_original = block.compute_hash();
-        block.transactions.push(Transaction::new([0u8; 32], [1u8; 32], 100));
+        block.transactions.push(Transaction::new(PublicKey::coinbase(), PublicKey([1u8; 32]), 100));
         assert_ne!(hash_original, block.compute_hash());
     }
 }
