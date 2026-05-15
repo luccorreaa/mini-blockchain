@@ -17,10 +17,10 @@
 
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use mini_blockchain::blockchain::Blockchain;
+use mini_blockchain::chain::blockchain::Blockchain;
+use mini_blockchain::chain::block::Block;
 use mini_blockchain::crypto::wallet::Wallet;
 use mini_blockchain::crypto::transaction::Transaction;
-use mini_blockchain::block::Block;
 use mini_blockchain::types::PublicKey;
 use axum::{Router, routing::{get, post}, extract::State, Json};
 use axum::extract::Path;
@@ -137,7 +137,7 @@ async fn add_to_mempool(
     tx.sign(&signing_key);
 
     let mut bc = blockchain.write().await;
-    bc.add_transaction(tx).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    bc.add_transaction(tx).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
 
     info!(from = %payload.from, to = %payload.to, amount = payload.amount, "Transaction added to mempool");
     Ok("Transaction submitted".to_string())

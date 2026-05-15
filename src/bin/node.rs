@@ -21,7 +21,8 @@ use libp2p::{
 use libp2p::futures::StreamExt;
 use tokio::io::{self, AsyncBufReadExt};
 use serde::{Serialize, Deserialize};
-use mini_blockchain::blockchain::Blockchain;
+use mini_blockchain::chain::blockchain::Blockchain;
+use mini_blockchain::chain::block::Block;
 use mini_blockchain::crypto::transaction::Transaction;
 use mini_blockchain::types::PublicKey;
 use std::collections::HashSet;
@@ -134,11 +135,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ..
                 })) => {
                     if message.topic == block_topic_hash {
-                        if let Ok(block) = serde_json::from_slice::<mini_blockchain::block::Block>(&message.data) {
+                        if let Ok(block) = serde_json::from_slice::<Block>(&message.data) {
                             // Validate hash integrity and chain linkage before appending.
-                            let tip_hash = blockchain.chain().last().map(|b| b.hash().to_string());
-                            let valid = block.hash() == block.compute_hash()
-                                && tip_hash.as_deref() == Some(block.prev_hash());
+                            let tip_hash = blockchain.chain().last().map(|b| b.hash().clone());
+                            let valid = block.hash() == &block.compute_hash()
+                                && tip_hash.as_ref() == Some(block.prev_hash());
                             if valid {
                                 blockchain.push_block(block);
                                 blockchain.save("blockchain.json").ok();

@@ -4,7 +4,7 @@ use clap::Parser;
 use ed25519_dalek::SigningKey;
 use rand::rngs::OsRng;
 use rand::RngCore;
-use mini_blockchain::blockchain::Blockchain;
+use mini_blockchain::chain::blockchain::Blockchain;
 use mini_blockchain::crypto::wallet::Wallet;
 use mini_blockchain::crypto::transaction::Transaction;
 use mini_blockchain::types::PublicKey;
