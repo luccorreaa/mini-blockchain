@@ -10,6 +10,7 @@
 //! | [`merkle`] | SHA-256 Merkle root for transaction sets |
 //! | [`wallet`] | Ed25519 key pair with AES-256-GCM encrypted persistence |
 
+pub mod error;
 pub mod block;
 pub mod blockchain;
 pub mod transactions;
