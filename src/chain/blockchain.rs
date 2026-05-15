@@ -107,27 +107,9 @@ impl Blockchain {
         if i > 0 && block.prev_hash() != self.chain[i - 1].hash() { return false; }
         for tx in block.transactions() {
             if tx.sender().is_coinbase() { continue; }
-            if Self::verify_tx_signature(tx).is_err() { return false; }
+            if tx.verify_signature().is_err() { return false; }
         }
         self.verify_block_signature(block).is_ok()
-    }
-
-    fn verify_tx_signature(tx: &Transaction) -> Result<(), TransactionError> {
-        let sig_bytes = tx.signature().ok_or(TransactionError::InvalidSignature)?;
-        let sig_array: [u8; 64] = sig_bytes.try_into()
-            .map_err(|_| TransactionError::InvalidSignatureLength)?;
-        let signature = Signature::from_bytes(&sig_array);
-        let content = format!(
-            "{}{}{}{}",
-            hex::encode(tx.sender().as_bytes()),
-            hex::encode(tx.receiver().as_bytes()),
-            tx.amount(),
-            tx.nonce()
-        );
-        let verifying_key = VerifyingKey::from_bytes(tx.sender().as_bytes())
-            .map_err(|_| TransactionError::InvalidPublicKey)?;
-        verifying_key.verify(content.as_bytes(), &signature)
-            .map_err(|_| TransactionError::InvalidSignature)
     }
 
     fn verify_block_signature(&self, block: &Block) -> Result<(), ChainError> {

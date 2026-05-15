@@ -1,9 +1,11 @@
-//! Wallet: Ed25519 key pair with AES-256-GCM encrypted persistence.
+//! Wallet: Ed25519 key pair with BIP-39 mnemonic generation and AES-256-GCM encrypted persistence.
 
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::aead::rand_core::RngCore;
 use aes_gcm::aead::OsRng;
+use bip39::Mnemonic;
+use ed25519_dalek::SigningKey;
 use serde::{Serialize, Deserialize};
 use sha2::{Sha256, Digest};
 use crate::types::PublicKey;
@@ -12,10 +14,8 @@ use crate::error::{WalletError, WalletResult};
 /// An Ed25519 key pair used for signing transactions and blocks.
 #[derive(Serialize, Deserialize)]
 pub struct Wallet {
-    /// Raw 32-byte Ed25519 secret (signing) key, hex-encoded in JSON.
     #[serde(with = "hex")]
     secret: [u8; 32],
-    /// Corresponding Ed25519 public (verifying) key.
     pubkey: PublicKey,
 }
 
@@ -28,13 +28,43 @@ struct EncryptedWallet {
     pubkey: PublicKey,
 }
 
+/// Derives an Ed25519 signing key from a BIP-39 mnemonic phrase.
+///
+/// Uses the first 32 bytes of the 64-byte BIP-39 seed (no HD derivation).
+pub fn signing_key_from_mnemonic(phrase: &str) -> WalletResult<SigningKey> {
+    let mnemonic = Mnemonic::parse(phrase)
+        .map_err(|e| WalletError::InvalidMnemonic(e.to_string()))?;
+    let seed = mnemonic.to_seed("");
+    let secret: [u8; 32] = seed[..32].try_into()
+        .expect("BIP-39 seed is always 64 bytes");
+    Ok(SigningKey::from_bytes(&secret))
+}
+
 impl Wallet {
     pub fn new(secret: [u8; 32], pubkey: PublicKey) -> Self {
         Self { secret, pubkey }
     }
 
+    /// Generates a new wallet from a fresh BIP-39 mnemonic.
+    ///
+    /// Returns the mnemonic (show to user, never store) and the wallet.
+    pub fn generate() -> WalletResult<(Mnemonic, Self)> {
+        let mnemonic = Mnemonic::generate(12)
+            .map_err(|e| WalletError::InvalidMnemonic(e.to_string()))?;
+        let signing_key = signing_key_from_mnemonic(&mnemonic.to_string())?;
+        let pubkey = PublicKey::from_bytes(signing_key.verifying_key().to_bytes());
+        Ok((mnemonic, Self { secret: signing_key.to_bytes(), pubkey }))
+    }
+
+    /// Reconstructs a wallet from an existing BIP-39 mnemonic phrase.
+    pub fn from_mnemonic(phrase: &str) -> WalletResult<Self> {
+        let signing_key = signing_key_from_mnemonic(phrase)?;
+        let pubkey = PublicKey::from_bytes(signing_key.verifying_key().to_bytes());
+        Ok(Self { secret: signing_key.to_bytes(), pubkey })
+    }
+
     pub fn secret(&self) -> &[u8; 32] { &self.secret }
-    pub fn pubkey(&self) -> PublicKey { self.pubkey }
+    pub fn pubkey(&self) -> PublicKey  { self.pubkey }
 
     fn derive_key(password: &str) -> [u8; 32] {
         let mut hasher = Sha256::new();
@@ -97,5 +127,35 @@ mod tests {
         let wallet = Wallet::new([1u8; 32], PublicKey([2u8; 32]));
         wallet.save_encrypted("/tmp/test_wallet_pw.json", "correcta").unwrap();
         assert!(Wallet::load_encrypted("/tmp/test_wallet_pw.json", "incorrecta").is_err());
+    }
+
+    #[test]
+    fn generate_produces_12_word_mnemonic() {
+        let (mnemonic, wallet) = Wallet::generate().unwrap();
+        let phrase = mnemonic.to_string();
+        assert_eq!(phrase.split_whitespace().count(), 12);
+        let _ = wallet.pubkey();
+    }
+
+    #[test]
+    fn from_mnemonic_is_deterministic() {
+        let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        let w1 = Wallet::from_mnemonic(phrase).unwrap();
+        let w2 = Wallet::from_mnemonic(phrase).unwrap();
+        assert_eq!(w1.pubkey(), w2.pubkey());
+    }
+
+    #[test]
+    fn generate_and_from_mnemonic_produce_same_wallet() {
+        let (mnemonic, wallet) = Wallet::generate().unwrap();
+        let restored = Wallet::from_mnemonic(&mnemonic.to_string()).unwrap();
+        assert_eq!(restored.pubkey(), wallet.pubkey());
+        assert_eq!(restored.secret(), wallet.secret());
+    }
+
+    #[test]
+    fn invalid_mnemonic_returns_error() {
+        assert!(Wallet::from_mnemonic("not a valid phrase at all").is_err());
+        assert!(signing_key_from_mnemonic("bad input").is_err());
     }
 }
