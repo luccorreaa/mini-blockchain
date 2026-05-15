@@ -1,9 +1,9 @@
-use axum::{extract::State, http::StatusCode};
-use crate::api::AppState;
+use axum::extract::State;
+use crate::api::{AppState, error::ApiError};
 use crate::chain::block::Block;
 use crate::crypto::wallet::Wallet;
 
-pub async fn mine(State(s): State<AppState>) -> Result<String, (StatusCode, String)> {
+pub async fn mine(State(s): State<AppState>) -> Result<String, ApiError> {
     let reward = s.config.coinbase_reward;
 
     let (index, prev_hash, txs, difficulty) = {
@@ -12,7 +12,7 @@ pub async fn mine(State(s): State<AppState>) -> Result<String, (StatusCode, Stri
             bc.add_coinbase(wallet.pubkey(), reward);
         }
         let (tip_index, tip_hash) = bc.tip()
-            .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "Empty chain".to_string()))?;
+            .ok_or_else(|| ApiError::InternalError("Empty chain".to_string()))?;
         let txs = bc.take_mempool();
         let diff = bc.difficulty();
         (tip_index + 1, tip_hash, txs, diff)
@@ -22,11 +22,11 @@ pub async fn mine(State(s): State<AppState>) -> Result<String, (StatusCode, Stri
         let mut b = Block::new(index, txs, &prev_hash);
         b.mine(difficulty);
         b
-    }).await.map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Mining thread error".to_string()))?;
+    }).await.map_err(|_| ApiError::InternalError("Mining thread error".to_string()))?;
 
     let mut bc = s.blockchain.write().await;
     bc.push_block(block);
-    bc.save(&s.config.chain_path).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    bc.save(&s.config.chain_path).map_err(ApiError::from)?;
 
     tracing::info!("New block mined");
     Ok("Block mined successfully\n".to_string())
