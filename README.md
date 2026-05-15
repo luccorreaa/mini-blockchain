@@ -208,20 +208,38 @@ File paths can also be overridden per-command with `--wallet` and `--chain` (see
 
 ---
 
+### Wallet model
+
+A wallet is an Ed25519 key pair derived deterministically from a **BIP-39 seed phrase** (12 words). The seed phrase is the user's only real backup — whoever holds it controls the wallet.
+
+```
+new-wallet / import-wallet
+  → 12-word mnemonic  ← user writes this down
+  → Ed25519 key pair derived from mnemonic seed
+  → secret saved encrypted to wallet.json (local cache)
+
+Recovery: import-wallet --mnemonic "word1 ... word12"
+  → same key pair, new wallet.json
+```
+
+`WALLET_PASSWORD` protects `wallet.json` on disk (default `dev_password_change_me` for development). Losing the password is recoverable via the mnemonic. Losing the mnemonic is not.
+
+---
+
 ## CLI Usage
 
 ```bash
-# Generate a new wallet (saved encrypted to wallet.json)
+# Generate a new wallet — displays the 12-word seed phrase once
 WALLET_PASSWORD=<password> cargo run --bin mini_blockchain -- new-wallet
 
-# Use a custom wallet or chain path
+# Restore a wallet from a seed phrase
 WALLET_PASSWORD=<password> cargo run --bin mini_blockchain -- \
-  --wallet other.json --chain other_chain.json new-wallet
+  import-wallet --mnemonic "word1 word2 ... word12"
 
-# Send a transaction (adds to mempool, checks balance)
-WALLET_PASSWORD=<password> cargo run --bin mini_blockchain -- send \
-  --from <sender_pubkey_hex> \
-  --to   <receiver_pubkey_hex> \
+# Send a transaction (signed locally — never shares your mnemonic with the server)
+cargo run --bin mini_blockchain -- send \
+  --mnemonic "word1 word2 ... word12" \
+  --to <receiver_pubkey_hex> \
   --amount <amount>
 
 # Mine pending transactions into a new block
@@ -246,27 +264,29 @@ WALLET_PASSWORD=<password> cargo run --bin api
 RUST_LOG=debug WALLET_PASSWORD=<password> cargo run --bin api
 ```
 
-| Method | Endpoint        | Description                                                         |
-|--------|-----------------|---------------------------------------------------------------------|
-| GET    | `/chain`        | Returns the full blockchain as JSON                                 |
-| GET    | `/validate`     | Validates chain integrity                                           |
-| GET    | `/block/:index` | Returns a specific block by index                                   |
-| POST   | `/wallet`       | Generates a new wallet, returns pubkey (409 if wallet.json exists)  |
-| POST   | `/transaction`  | Signs a transaction and adds it to the mempool                      |
-| POST   | `/mine`         | Mines pending mempool transactions into a new block                 |
+| Method | Endpoint        | Description                                            |
+|--------|-----------------|--------------------------------------------------------|
+| GET    | `/chain`        | Returns the full blockchain as JSON                   |
+| GET    | `/validate`     | Validates chain integrity                              |
+| GET    | `/block/:index` | Returns a specific block by index                     |
+| POST   | `/transaction`  | Adds a pre-signed transaction to the mempool          |
+| POST   | `/mine`         | Mines pending mempool transactions into a new block   |
+| GET    | `/help`         | Lists available endpoints                             |
 
-### Example flow
+### Example: POST /transaction
+
+Client signs the transaction locally, then submits it:
 
 ```bash
-curl -X POST http://localhost:3000/wallet
-
 curl -X POST http://localhost:3000/transaction \
   -H "Content-Type: application/json" \
-  -d '{"from":"<pubkey>","to":"<pubkey>","amount":100}'
-
-curl -X POST http://localhost:3000/mine
-
-curl http://localhost:3000/chain
+  -d '{
+    "from":      "<sender_pubkey_hex>",
+    "to":        "<receiver_pubkey_hex>",
+    "amount":    100,
+    "nonce":     12345678,
+    "signature": "<ed25519_signature_hex>"
+  }'
 ```
 
 ---
@@ -280,10 +300,12 @@ cargo run --bin node
 
 Once running, two or more nodes on the same network will discover each other automatically via mDNS, synchronize their chains, and keep each other updated in real time.
 
+### Node stdin commands
+
 Available stdin commands:
 ```
-mine                          mine a block and broadcast it to all peers
-tx <from_hex> <to_hex> <amt>  create and broadcast a transaction
+mine    mine a block and broadcast it to peers
+help    show available commands
 ```
 
 ---
@@ -327,3 +349,5 @@ libp2p = { version = "0.54", features = ["mdns", "gossipsub", "tokio", "tcp", "n
 - [x] P2P networking with libp2p (mDNS + Gossipsub + request/response)
 - [x] Custom error types with thiserror
 - [x] Block and transaction validation on P2P receive
+- [x] BIP-39 seed phrase wallet generation and recovery
+- [x] Client-side transaction signing (server never touches private keys)
