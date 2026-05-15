@@ -61,13 +61,13 @@ src/
 
 Each block contains:
 - `index` — position in the chain
-- `transacciones` — list of signed transactions
-- `hash_previo` — hash of the previous block
+- `transactions` — list of signed transactions
+- `prev_hash` — hash of the previous block
 - `hash` — SHA-256 of `index + merkle_root + prev_hash + timestamp + nonce`
 - `timestamp` — Unix epoch seconds
 - `nonce` — counter incremented during Proof of Work
-- `firma` — Ed25519 signature of the block by its author
-- `autor` — public key (32 bytes) of the block's signer
+- `signature` — Ed25519 signature of the block by its author
+- `author` — public key (32 bytes) of the block's signer
 
 ### Merkle tree
 
@@ -82,7 +82,7 @@ Each block contains:
      tx1       tx2       tx3       tx4
 ```
 
-Each leaf is the SHA-256 of a transaction's `sender + receiver + amount`. Pairs are concatenated and hashed level by level until one hash remains. If a level has an odd number of nodes, the last one is duplicated. The Merkle Root is used in both `calcular_hash` and `firmar`, ensuring any change to any transaction invalidates both the block hash and the block signature.
+Each leaf is the SHA-256 of a transaction's `sender + receiver + amount`. Pairs are concatenated and hashed level by level until one hash remains. If a level has an odd number of nodes, the last one is duplicated. The Merkle Root is used in both `compute_hash` and `sign`, ensuring any change to any transaction invalidates both the block hash and the block signature.
 
 ### Proof of Work
 
@@ -147,9 +147,9 @@ The `WALLET_PASSWORD` environment variable provides the password. If unset, `dev
 
 ### Chain validation
 
-`Blockchain::validar()` checks every block:
+`Blockchain::validate()` checks every block:
 1. The stored hash matches the recalculated hash
-2. `hash_previo` matches the actual hash of the previous block
+2. `prev_hash` matches the actual hash of the previous block
 3. Every non-coinbase transaction has a valid Ed25519 signature against its sender key
 4. If the block is signed, the block's Ed25519 signature is valid against the stored author key
 
