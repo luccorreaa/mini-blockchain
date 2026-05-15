@@ -12,3 +12,4 @@ pub mod types;
 pub mod config;
 pub mod chain;
 pub mod crypto;
+pub mod cli;
