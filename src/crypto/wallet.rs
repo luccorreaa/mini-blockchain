@@ -35,8 +35,8 @@ pub fn signing_key_from_mnemonic(phrase: &str) -> WalletResult<SigningKey> {
     let mnemonic = Mnemonic::parse(phrase)
         .map_err(|e| WalletError::InvalidMnemonic(e.to_string()))?;
     let seed = mnemonic.to_seed("");
-    let secret: [u8; 32] = seed[..32].try_into()
-        .expect("BIP-39 seed is always 64 bytes");
+    let mut secret = [0u8; 32];
+    secret.copy_from_slice(&seed[..32]);
     Ok(SigningKey::from_bytes(&secret))
 }
 
@@ -51,9 +51,12 @@ impl Wallet {
     pub fn generate() -> WalletResult<(Mnemonic, Self)> {
         let mnemonic = Mnemonic::generate(12)
             .map_err(|e| WalletError::InvalidMnemonic(e.to_string()))?;
-        let signing_key = signing_key_from_mnemonic(&mnemonic.to_string())?;
+        let seed = mnemonic.to_seed("");
+        let mut secret = [0u8; 32];
+        secret.copy_from_slice(&seed[..32]);
+        let signing_key = SigningKey::from_bytes(&secret);
         let pubkey = PublicKey::from_bytes(signing_key.verifying_key().to_bytes());
-        Ok((mnemonic, Self { secret: signing_key.to_bytes(), pubkey }))
+        Ok((mnemonic, Self { secret, pubkey }))
     }
 
     /// Reconstructs a wallet from an existing BIP-39 mnemonic phrase.

@@ -53,7 +53,7 @@ impl Transaction {
 
     fn signable_content(&self) -> String {
         format!(
-            "{}{}{}{}",
+            "{}:{}:{}:{}",
             hex::encode(self.sender.as_bytes()),
             hex::encode(self.receiver.as_bytes()),
             self.amount,
