@@ -37,6 +37,7 @@ pub enum Command {
         /// Recipient public key (hex).
         #[arg(short, long)]
         to: String,
+        /// Amount of units to transfer.
         #[arg(short, long)]
         amount: u64,
     },

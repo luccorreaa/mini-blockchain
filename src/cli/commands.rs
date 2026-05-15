@@ -3,7 +3,15 @@ use crate::crypto::wallet::{self, Wallet};
 use crate::crypto::transaction::Transaction;
 use crate::types::PublicKey;
 use crate::config::Config;
-use crate::error::{CliError, CliResult, ChainError};
+use crate::error::{CliError, CliResult, ChainError, ChainResult, WalletError};
+
+fn load_blockchain(config: &Config) -> ChainResult<Blockchain> {
+    match Blockchain::load(&config.chain_path) {
+        Ok(bc) => Ok(bc),
+        Err(ChainError::Io(ref e)) if e.kind() == std::io::ErrorKind::NotFound => Ok(Blockchain::default()),
+        Err(e) => Err(e),
+    }
+}
 
 pub fn new_wallet(config: &Config) -> CliResult<()> {
     if config.wallet_path.exists() {
@@ -31,7 +39,7 @@ pub fn import_wallet(mnemonic: &str, config: &Config) -> CliResult<()> {
 }
 
 pub fn show_chain(config: &Config) -> CliResult<()> {
-    let blockchain = Blockchain::load(&config.chain_path).unwrap_or_default();
+    let blockchain = load_blockchain(config)?;
     println!("Showing blockchain...");
     for block in blockchain.chain() {
         println!(
@@ -44,15 +52,17 @@ pub fn show_chain(config: &Config) -> CliResult<()> {
 }
 
 pub fn validate_chain(config: &Config) -> CliResult<()> {
-    let blockchain = Blockchain::load(&config.chain_path).unwrap_or_default();
+    let blockchain = load_blockchain(config)?;
     println!("Chain is valid: {}", blockchain.validate());
     Ok(())
 }
 
 pub fn mine(config: &Config) -> CliResult<()> {
-    let mut blockchain = Blockchain::load(&config.chain_path).unwrap_or_default();
-    if let Ok(w) = Wallet::load_encrypted(&config.wallet_path, &config.wallet_password) {
-        blockchain.add_coinbase(w.pubkey(), config.coinbase_reward);
+    let mut blockchain = load_blockchain(config)?;
+    match Wallet::load_encrypted(&config.wallet_path, &config.wallet_password) {
+        Ok(w) => { blockchain.add_coinbase(w.pubkey(), config.coinbase_reward); }
+        Err(WalletError::Io(_)) => {}
+        Err(e) => eprintln!("Warning: could not load wallet for coinbase: {e}"),
     }
     println!("Mining block...");
     blockchain.mine();
@@ -66,13 +76,12 @@ pub fn send(mnemonic: &str, to: &str, amount: u64, config: &Config) -> CliResult
         .map_err(CliError::Wallet)?;
     let from = PublicKey::from_bytes(signing_key.verifying_key().to_bytes());
     let to_key = PublicKey::try_from(hex::decode(to)?)
-        .map_err(|e| CliError::Chain(ChainError::Transaction(e)))?;
-    let mut blockchain = Blockchain::load(&config.chain_path).unwrap_or_default();
+        .map_err(ChainError::Transaction)?;
+    let mut blockchain = load_blockchain(config)?;
     let mut tx = Transaction::new(from, to_key, amount);
     tx.sign(&signing_key);
-    println!("Sending {} from {} to {}...", amount, from, to_key);
     blockchain.add_transaction(tx)?;
     blockchain.save(&config.chain_path)?;
-    println!("Transaction added to mempool. Run 'mine' to confirm it.");
+    println!("Transaction queued: {} units from {} to {}. Run 'mine' to confirm.", amount, from, to_key);
     Ok(())
 }
