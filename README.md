@@ -56,8 +56,8 @@ src/
 │   └── handlers/
 │       ├── chain.rs    # GET /chain, GET /block/:index, GET /validate
 │       ├── mining.rs   # POST /mine  (3-phase lock-free PoW)
-│       ├── transaction.rs # POST /transaction
-│       └── wallet.rs   # POST /wallet
+│       ├── transaction.rs # POST /transaction (pre-signed)
+│       └── help.rs     # GET /help
 │
 ├── node/
 │   ├── mod.rs          # NodeState, Node::new(), Node::run()
@@ -157,9 +157,6 @@ ChainResponse received
 
 "mine" typed in stdin
   └── mine locally → publish block via Gossipsub
-
-"tx <from> <to> <amount>" typed in stdin
-  └── create transaction → publish via Gossipsub
 
 Gossipsub message received
   ├── topic "blocks"       → validate hash + prev_hash linkage → push_block + save
