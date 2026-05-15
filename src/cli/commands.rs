@@ -1,8 +1,5 @@
-use ed25519_dalek::SigningKey;
-use rand::rngs::OsRng;
-use rand::RngCore;
 use crate::chain::blockchain::Blockchain;
-use crate::crypto::wallet::Wallet;
+use crate::crypto::wallet::{self, Wallet};
 use crate::crypto::transaction::Transaction;
 use crate::types::PublicKey;
 use crate::config::Config;
@@ -14,14 +11,22 @@ pub fn new_wallet(config: &Config) -> CliResult<()> {
             config.wallet_path.display().to_string(),
         ));
     }
-    let mut secret = [0u8; 32];
-    OsRng.fill_bytes(&mut secret);
-    let signing_key = SigningKey::from_bytes(&secret);
-    let pubkey = PublicKey::from_bytes(signing_key.verifying_key().to_bytes());
-    let wallet = Wallet::new(secret, pubkey);
-    wallet.save_encrypted(&config.wallet_path, &config.wallet_password)?;
-    println!("Generating new wallet...");
-    println!("Public key: {}", pubkey);
+    let (mnemonic, w) = Wallet::generate()?;
+    w.save_encrypted(&config.wallet_path, &config.wallet_password)?;
+
+    println!("\nWallet generated successfully.");
+    println!("\nSeed phrase (write this down — it is the only way to recover your wallet):\n");
+    println!("  {}\n", mnemonic);
+    println!("Public key: {}", w.pubkey());
+    println!("\nWARNING: never share your seed phrase with anyone.\n");
+    Ok(())
+}
+
+pub fn import_wallet(mnemonic: &str, config: &Config) -> CliResult<()> {
+    let w = Wallet::from_mnemonic(mnemonic)?;
+    w.save_encrypted(&config.wallet_path, &config.wallet_password)?;
+    println!("Wallet imported successfully.");
+    println!("Public key: {}", w.pubkey());
     Ok(())
 }
 
@@ -40,15 +45,14 @@ pub fn show_chain(config: &Config) -> CliResult<()> {
 
 pub fn validate_chain(config: &Config) -> CliResult<()> {
     let blockchain = Blockchain::load(&config.chain_path).unwrap_or_default();
-    println!("Validating blockchain...");
     println!("Chain is valid: {}", blockchain.validate());
     Ok(())
 }
 
 pub fn mine(config: &Config) -> CliResult<()> {
     let mut blockchain = Blockchain::load(&config.chain_path).unwrap_or_default();
-    if let Ok(wallet) = Wallet::load_encrypted(&config.wallet_path, &config.wallet_password) {
-        blockchain.add_coinbase(wallet.pubkey(), config.coinbase_reward);
+    if let Ok(w) = Wallet::load_encrypted(&config.wallet_path, &config.wallet_password) {
+        blockchain.add_coinbase(w.pubkey(), config.coinbase_reward);
     }
     println!("Mining block...");
     blockchain.mine();
@@ -57,18 +61,18 @@ pub fn mine(config: &Config) -> CliResult<()> {
     Ok(())
 }
 
-pub fn send(from: &str, to: &str, amount: u64, config: &Config) -> CliResult<()> {
-    let mut blockchain = Blockchain::load(&config.chain_path).unwrap_or_default();
-    let from_key = PublicKey::try_from(hex::decode(from)?)
-        .map_err(|e| CliError::Chain(ChainError::Transaction(e)))?;
+pub fn send(mnemonic: &str, to: &str, amount: u64, config: &Config) -> CliResult<()> {
+    let signing_key = wallet::signing_key_from_mnemonic(mnemonic)
+        .map_err(CliError::Wallet)?;
+    let from = PublicKey::from_bytes(signing_key.verifying_key().to_bytes());
     let to_key = PublicKey::try_from(hex::decode(to)?)
         .map_err(|e| CliError::Chain(ChainError::Transaction(e)))?;
-    let mut tx = Transaction::new(from_key, to_key, amount);
-    let wallet = Wallet::load_encrypted(&config.wallet_path, &config.wallet_password)?;
-    tx.sign(&SigningKey::from_bytes(wallet.secret()));
-    println!("Sending {} from {} to {}...", amount, from_key, to_key);
+    let mut blockchain = Blockchain::load(&config.chain_path).unwrap_or_default();
+    let mut tx = Transaction::new(from, to_key, amount);
+    tx.sign(&signing_key);
+    println!("Sending {} from {} to {}...", amount, from, to_key);
     blockchain.add_transaction(tx)?;
     blockchain.save(&config.chain_path)?;
-    println!("Transaction in mempool. Run 'mine' to confirm it.");
+    println!("Transaction added to mempool. Run 'mine' to confirm it.");
     Ok(())
 }

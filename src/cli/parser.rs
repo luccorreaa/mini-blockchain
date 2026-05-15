@@ -15,8 +15,14 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
-    /// Generate a new Ed25519 wallet.
+    /// Generate a new Ed25519 wallet and display the 12-word seed phrase.
     NewWallet,
+    /// Reconstruct a wallet from an existing BIP-39 seed phrase.
+    ImportWallet {
+        /// The 12-word seed phrase (quote the whole phrase).
+        #[arg(short, long)]
+        mnemonic: String,
+    },
     /// Print every block in the chain.
     ShowChain,
     /// Validate the chain and report the result.
@@ -25,8 +31,10 @@ pub enum Command {
     Mine,
     /// Create a signed transaction and add it to the mempool.
     Send {
+        /// 12-word BIP-39 seed phrase of the sender wallet.
         #[arg(short, long)]
-        from: String,
+        mnemonic: String,
+        /// Recipient public key (hex).
         #[arg(short, long)]
         to: String,
         #[arg(short, long)]
