@@ -14,3 +14,4 @@ pub mod chain;
 pub mod crypto;
 pub mod cli;
 pub mod api;
+pub mod node;
