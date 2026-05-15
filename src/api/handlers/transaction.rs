@@ -1,6 +1,6 @@
-use axum::{extract::State, Json, http::StatusCode};
+use axum::{extract::State, Json};
 use serde::Deserialize;
-use crate::api::AppState;
+use crate::api::{AppState, error::ApiError};
 use crate::crypto::transaction::Transaction;
 use crate::types::PublicKey;
 
@@ -16,27 +16,26 @@ pub struct SendPayload {
 pub async fn add_to_mempool(
     State(s): State<AppState>,
     Json(payload): Json<SendPayload>,
-) -> Result<String, (StatusCode, String)> {
+) -> Result<String, ApiError> {
     let from = parse_pubkey(&payload.from, "from")?;
     let to   = parse_pubkey(&payload.to,   "to")?;
     let sig  = hex::decode(&payload.signature)
-        .map_err(|_| (StatusCode::BAD_REQUEST, "invalid hex in 'signature'".to_string()))?;
+        .map_err(|_| ApiError::BadRequest("invalid hex in 'signature'".to_string()))?;
 
     let tx = Transaction::from_parts(from, to, payload.amount, payload.nonce, sig);
-    tx.verify_signature()
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    tx.verify_signature().map_err(ApiError::from)?;
 
     s.blockchain.write().await
         .add_transaction(tx)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        .map_err(ApiError::from)?;
 
     tracing::info!(from = %from, to = %to, amount = payload.amount, "Transaction added");
     Ok("Transaction submitted".to_string())
 }
 
-fn parse_pubkey(hex_str: &str, field: &str) -> Result<PublicKey, (StatusCode, String)> {
+fn parse_pubkey(hex_str: &str, field: &str) -> Result<PublicKey, ApiError> {
     let bytes = hex::decode(hex_str)
-        .map_err(|_| (StatusCode::BAD_REQUEST, format!("invalid hex in '{field}'")))?;
+        .map_err(|_| ApiError::BadRequest(format!("invalid hex in '{field}'")))?;
     PublicKey::try_from(bytes)
-        .map_err(|_| (StatusCode::BAD_REQUEST, format!("'{field}' must be 32 bytes")))
+        .map_err(|_| ApiError::BadRequest(format!("'{field}' must be 32 bytes")))
 }
