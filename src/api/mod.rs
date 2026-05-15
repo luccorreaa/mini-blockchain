@@ -1,3 +1,4 @@
+pub mod error;
 pub mod handlers;
 
 use std::sync::Arc;
