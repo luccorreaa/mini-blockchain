@@ -21,8 +21,7 @@ pub async fn serve(config: Config) {
         )
         .init();
 
-    let blockchain = Blockchain::load(config.chain_path.to_str().unwrap())
-        .unwrap_or_default();
+    let blockchain = Blockchain::load(&config.chain_path).unwrap_or_default();
 
     let state: AppState = Arc::new(ApiState {
         blockchain: RwLock::new(blockchain),
@@ -38,7 +37,9 @@ pub async fn serve(config: Config) {
         .route("/mine",         post(handlers::mining::mine))
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind(API_BIND_ADDR).await.unwrap();
-    tracing::info!(addr = "http://localhost:3000", "API started");
-    axum::serve(listener, app).await.unwrap();
+    let listener = tokio::net::TcpListener::bind(API_BIND_ADDR).await
+        .expect("failed to bind API listener");
+    let addr = listener.local_addr().expect("listener has no local address");
+    tracing::info!(%addr, "API started");
+    axum::serve(listener, app).await.expect("server error");
 }

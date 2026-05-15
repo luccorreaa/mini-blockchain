@@ -3,6 +3,7 @@ pub mod commands;
 pub mod events;
 
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::time::Duration;
 use libp2p::{
     gossipsub, mdns, noise, tcp, yamux,
@@ -24,7 +25,7 @@ pub struct NodeState {
     pub synced_peers: HashSet<PeerId>,
     pub block_topic:  gossipsub::IdentTopic,
     pub tx_topic:     gossipsub::IdentTopic,
-    pub chain_path:   String,
+    pub chain_path:   PathBuf,
 }
 
 pub struct Node {
@@ -61,8 +62,7 @@ impl Node {
             .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
             .build();
 
-        let chain_path = config.chain_path.to_str().unwrap().to_string();
-        let blockchain = Blockchain::load(&chain_path).unwrap_or_default();
+        let blockchain = Blockchain::load(&config.chain_path).unwrap_or_default();
         let block_topic = gossipsub::IdentTopic::new("blocks");
         let tx_topic    = gossipsub::IdentTopic::new("transactions");
 
@@ -73,20 +73,22 @@ impl Node {
                 synced_peers: HashSet::new(),
                 block_topic,
                 tx_topic,
-                chain_path,
+                chain_path: config.chain_path,
             },
         })
     }
 
     pub async fn run(mut self) -> NodeResult<()> {
         self.state.swarm
-            .listen_on("/ip4/0.0.0.0/tcp/0".parse().unwrap())
-            .unwrap();
+            .listen_on("/ip4/0.0.0.0/tcp/0".parse().expect("valid multiaddr"))
+            .map_err(|e| NodeError::Transport(e.to_string()))?;
 
         {
             let s = &mut self.state;
-            s.swarm.behaviour_mut().gossipsub.subscribe(&s.block_topic).unwrap();
-            s.swarm.behaviour_mut().gossipsub.subscribe(&s.tx_topic).unwrap();
+            s.swarm.behaviour_mut().gossipsub.subscribe(&s.block_topic)
+                .map_err(|e| NodeError::Transport(e.to_string()))?;
+            s.swarm.behaviour_mut().gossipsub.subscribe(&s.tx_topic)
+                .map_err(|e| NodeError::Transport(e.to_string()))?;
         }
 
         let mut stdin = io::BufReader::new(io::stdin()).lines();

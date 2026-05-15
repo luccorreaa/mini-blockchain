@@ -42,7 +42,7 @@ impl Block {
             hash: Hash::empty(),
             timestamp: SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
+                .expect("system clock before UNIX_EPOCH")
                 .as_secs(),
             signature: None,
             author: None,
@@ -60,7 +60,7 @@ impl Block {
         );
         let signature = signing_key.sign(content.as_bytes());
         self.signature = Some(signature.to_bytes().to_vec());
-        self.author = Some(PublicKey(signing_key.verifying_key().to_bytes()));
+        self.author = Some(PublicKey::from_bytes(signing_key.verifying_key().to_bytes()));
     }
 
     /// Increments nonce until hash has `difficulty` leading zero hex digits.

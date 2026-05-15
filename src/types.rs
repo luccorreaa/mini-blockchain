@@ -23,11 +23,12 @@ impl From<String> for Hash {
 /// Ed25519 public key (32 bytes), serialized as a hex string.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct PublicKey(#[serde(with = "hex")] pub [u8; 32]);
+pub struct PublicKey(#[serde(with = "hex")] pub(crate) [u8; 32]);
 
 impl PublicKey {
     /// Coinbase sentinel: all-zero bytes indicate no real sender.
     pub fn coinbase() -> Self { Self([0u8; 32]) }
+    pub fn from_bytes(bytes: [u8; 32]) -> Self { Self(bytes) }
     pub fn is_coinbase(&self) -> bool { self.0 == [0u8; 32] }
     pub fn as_bytes(&self) -> &[u8; 32] { &self.0 }
 }

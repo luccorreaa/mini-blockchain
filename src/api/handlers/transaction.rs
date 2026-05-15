@@ -19,13 +19,11 @@ pub async fn add_to_mempool(
     let from = parse_pubkey(&payload.from, "from")?;
     let to   = parse_pubkey(&payload.to,   "to")?;
 
-    let wallet = Wallet::load_encrypted(
-        s.config.wallet_path.to_str().unwrap(),
-        &s.config.wallet_password,
-    ).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let wallet = Wallet::load_encrypted(&s.config.wallet_path, &s.config.wallet_password)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let mut tx = Transaction::new(from, to, payload.amount);
-    tx.sign(&SigningKey::from_bytes(&wallet.secret));
+    tx.sign(&SigningKey::from_bytes(wallet.secret()));
 
     s.blockchain.write().await
         .add_transaction(tx)

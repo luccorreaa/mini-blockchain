@@ -14,9 +14,9 @@ use crate::error::{WalletError, WalletResult};
 pub struct Wallet {
     /// Raw 32-byte Ed25519 secret (signing) key, hex-encoded in JSON.
     #[serde(with = "hex")]
-    pub secret: [u8; 32],
+    secret: [u8; 32],
     /// Corresponding Ed25519 public (verifying) key.
-    pub pubkey: PublicKey,
+    pubkey: PublicKey,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -33,13 +33,16 @@ impl Wallet {
         Self { secret, pubkey }
     }
 
+    pub fn secret(&self) -> &[u8; 32] { &self.secret }
+    pub fn pubkey(&self) -> PublicKey { self.pubkey }
+
     fn derive_key(password: &str) -> [u8; 32] {
         let mut hasher = Sha256::new();
         hasher.update(password.as_bytes());
         hasher.finalize().into()
     }
 
-    pub fn save_encrypted(&self, path: &str, password: &str) -> WalletResult<()> {
+    pub fn save_encrypted(&self, path: impl AsRef<std::path::Path>, password: &str) -> WalletResult<()> {
         let key_bytes = Self::derive_key(password);
         let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
         let cipher = Aes256Gcm::new(key);
@@ -53,7 +56,7 @@ impl Wallet {
         Ok(())
     }
 
-    pub fn load_encrypted(path: &str, password: &str) -> WalletResult<Wallet> {
+    pub fn load_encrypted(path: impl AsRef<std::path::Path>, password: &str) -> WalletResult<Wallet> {
         let encrypted: EncryptedWallet = serde_json::from_str(&std::fs::read_to_string(path)?)?;
         let key_bytes = Self::derive_key(password);
         let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
@@ -66,12 +69,12 @@ impl Wallet {
         Ok(Wallet { secret, pubkey: encrypted.pubkey })
     }
 
-    pub fn save(&self, path: &str) -> WalletResult<()> {
+    pub fn save(&self, path: impl AsRef<std::path::Path>) -> WalletResult<()> {
         std::fs::write(path, serde_json::to_string_pretty(&self)?)?;
         Ok(())
     }
 
-    pub fn load(path: &str) -> WalletResult<Wallet> {
+    pub fn load(path: impl AsRef<std::path::Path>) -> WalletResult<Wallet> {
         Ok(serde_json::from_str(&std::fs::read_to_string(path)?)?)
     }
 }
@@ -85,8 +88,8 @@ mod tests {
         let wallet = Wallet::new([42u8; 32], PublicKey([7u8; 32]));
         wallet.save_encrypted("/tmp/test_wallet_rt.json", "mi_password").unwrap();
         let loaded = Wallet::load_encrypted("/tmp/test_wallet_rt.json", "mi_password").unwrap();
-        assert_eq!(loaded.secret, wallet.secret);
-        assert_eq!(loaded.pubkey, wallet.pubkey);
+        assert_eq!(loaded.secret(), wallet.secret());
+        assert_eq!(loaded.pubkey(), wallet.pubkey());
     }
 
     #[test]

@@ -18,10 +18,10 @@ pub struct Blockchain {
     difficulty: usize,
 }
 
-fn default_difficulty() -> usize { 2 }
+fn default_difficulty() -> usize { crate::config::DEFAULT_DIFFICULTY }
 
 impl Blockchain {
-    pub fn new() -> Self { Self::with_difficulty(2) }
+    pub fn new() -> Self { Self::with_difficulty(crate::config::DEFAULT_DIFFICULTY) }
 
     pub fn with_difficulty(difficulty: usize) -> Self {
         let genesis = Block::new(0, vec![], &Hash::empty());
@@ -155,12 +155,12 @@ impl Blockchain {
         }
     }
 
-    pub fn save(&self, path: &str) -> ChainResult<()> {
+    pub fn save(&self, path: impl AsRef<std::path::Path>) -> ChainResult<()> {
         std::fs::write(path, serde_json::to_string_pretty(&self)?)?;
         Ok(())
     }
 
-    pub fn load(path: &str) -> ChainResult<Blockchain> {
+    pub fn load(path: impl AsRef<std::path::Path>) -> ChainResult<Blockchain> {
         Ok(serde_json::from_str(&std::fs::read_to_string(path)?)?)
     }
 

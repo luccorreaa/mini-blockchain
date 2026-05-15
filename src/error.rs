@@ -44,6 +44,8 @@ pub enum CliError {
     InvalidHex(#[from] hex::FromHexError),
     #[error("key must be 32 bytes")]
     InvalidKeyLength,
+    #[error("wallet already exists at {0}; remove it first to generate a new one")]
+    WalletAlreadyExists(String),
     #[error(transparent)]
     Chain(#[from] ChainError),
     #[error(transparent)]
