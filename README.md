@@ -27,19 +27,48 @@ The project covers three layers:
 
 ## Architecture
 
+All logic lives in the library crate. Binaries are thin entry points (~6 lines each).
+
 ```
 src/
-├── lib.rs            # Library crate — shared modules
-├── main.rs           # Binary: CLI (clap)
-├── bin/
-│   ├── api.rs        # Binary: REST API (axum + tokio)
-│   └── node.rs       # Binary: P2P node (libp2p)
-├── block.rs          # Block struct, PoW mining, signing, hash calculation
-├── blockchain.rs     # Chain, mempool, balance tracking, validation, persistence
-├── transactions.rs   # Transaction struct, Ed25519 signatures, anti-replay nonce
-├── merkle.rs         # Iterative bottom-up Merkle tree
-├── wallet.rs         # Keypair generation, AES-256-GCM encryption
-└── cli.rs            # CLI commands
+├── lib.rs              # Re-exports all public modules
+├── error.rs            # Typed error enums (thiserror): WalletError, TransactionError,
+│                       #   ChainError, CliError, NodeError
+├── types.rs            # Hash and PublicKey semantic newtypes
+├── config.rs           # Config struct + DEFAULT_* constants
+│
+├── chain/
+│   ├── block.rs        # Block struct, PoW mining, signing, hash calculation
+│   ├── blockchain.rs   # Chain, mempool, balance tracking, validation, persistence
+│   └── merkle.rs       # Iterative bottom-up Merkle tree
+│
+├── crypto/
+│   ├── transaction.rs  # Transaction struct, Ed25519 signatures, anti-replay nonce
+│   └── wallet.rs       # Keypair generation, AES-256-GCM encryption
+│
+├── cli/
+│   ├── parser.rs       # Cli struct + Command enum (clap), global --wallet/--chain flags
+│   ├── commands.rs     # One fn per subcommand, all return CliResult<()>
+│   └── mod.rs          # run(command, config) dispatcher
+│
+├── api/
+│   ├── mod.rs          # AppState, build_router(), serve()
+│   └── handlers/
+│       ├── chain.rs    # GET /chain, GET /block/:index, GET /validate
+│       ├── mining.rs   # POST /mine  (3-phase lock-free PoW)
+│       ├── transaction.rs # POST /transaction
+│       └── wallet.rs   # POST /wallet
+│
+├── node/
+│   ├── mod.rs          # NodeState, Node::new(), Node::run()
+│   ├── behaviour.rs    # NodeBehaviour, ChainRequest, ChainResponse
+│   ├── events.rs       # handle_swarm_event()
+│   └── commands.rs     # handle_stdin_command()
+│
+└── bin/
+    ├── main.rs         # CLI binary
+    ├── api.rs          # REST API binary
+    └── node.rs         # P2P node binary
 ```
 
 ---
@@ -62,12 +91,12 @@ src/
 Each block contains:
 - `index` — position in the chain
 - `transactions` — list of signed transactions
-- `prev_hash` — hash of the previous block
-- `hash` — SHA-256 of `index + merkle_root + prev_hash + timestamp + nonce`
+- `prev_hash` — hash of the previous block (`Hash` newtype)
+- `hash` — SHA-256 of `index + merkle_root + prev_hash + timestamp + nonce` (`Hash` newtype)
 - `timestamp` — Unix epoch seconds
 - `nonce` — counter incremented during Proof of Work
 - `signature` — Ed25519 signature of the block by its author
-- `author` — public key (32 bytes) of the block's signer
+- `author` — public key of the block's signer (`PublicKey` newtype)
 
 ### Merkle tree
 
@@ -94,7 +123,7 @@ loop:
 until hash.starts_with(target)
 ```
 
-Difficulty is stored in the `Blockchain` struct and defaults to `2`. In the API server, the PoW loop runs inside `tokio::task::spawn_blocking` so it never blocks the async runtime.
+Difficulty is stored in the `Blockchain` struct and defaults to `DEFAULT_DIFFICULTY` (2). In the API server, the PoW loop runs inside `tokio::task::spawn_blocking` so it never blocks the async runtime.
 
 ### Mempool & Transaction lifecycle
 
@@ -133,7 +162,7 @@ ChainResponse received
   └── create transaction → publish via Gossipsub
 
 Gossipsub message received
-  ├── topic "blocks"       → push_block + save
+  ├── topic "blocks"       → validate hash + prev_hash linkage → push_block + save
   └── topic "transactions" → add_transaction
 ```
 
@@ -153,6 +182,30 @@ The `WALLET_PASSWORD` environment variable provides the password. If unset, `dev
 3. Every non-coinbase transaction has a valid Ed25519 signature against its sender key
 4. If the block is signed, the block's Ed25519 signature is valid against the stored author key
 
+### Error handling
+
+Each module has its own typed error enum via `thiserror`:
+
+| Error type | Used by |
+|---|---|
+| `WalletError` | `crypto::wallet` |
+| `TransactionError` | `crypto::transaction` |
+| `ChainError` | `chain::blockchain` (wraps `TransactionError`) |
+| `CliError` | `cli::commands`, `bin/main.rs` (wraps `ChainError`, `WalletError`) |
+| `NodeError` | `node` (wraps `ChainError`) |
+
+---
+
+## Configuration
+
+All paths and constants are centralized in `src/config.rs`. They can be overridden via environment variables:
+
+| Env var | Default | Description |
+|---|---|---|
+| `WALLET_PASSWORD` | `dev_password_change_me` | Password used to encrypt/decrypt the wallet |
+
+File paths can also be overridden per-command with `--wallet` and `--chain` (see CLI usage below).
+
 ---
 
 ## CLI Usage
@@ -161,10 +214,14 @@ The `WALLET_PASSWORD` environment variable provides the password. If unset, `dev
 # Generate a new wallet (saved encrypted to wallet.json)
 WALLET_PASSWORD=<password> cargo run --bin mini_blockchain -- new-wallet
 
+# Use a custom wallet or chain path
+WALLET_PASSWORD=<password> cargo run --bin mini_blockchain -- \
+  --wallet other.json --chain other_chain.json new-wallet
+
 # Send a transaction (adds to mempool, checks balance)
 WALLET_PASSWORD=<password> cargo run --bin mini_blockchain -- send \
   --from <sender_pubkey_hex> \
-  --to <receiver_pubkey_hex> \
+  --to   <receiver_pubkey_hex> \
   --amount <amount>
 
 # Mine pending transactions into a new block
@@ -192,7 +249,7 @@ RUST_LOG=debug WALLET_PASSWORD=<password> cargo run --bin api
 | Method | Endpoint        | Description                                                         |
 |--------|-----------------|---------------------------------------------------------------------|
 | GET    | `/chain`        | Returns the full blockchain as JSON                                 |
-| GET    | `/validar`      | Validates chain integrity                                           |
+| GET    | `/validate`     | Validates chain integrity                                           |
 | GET    | `/block/:index` | Returns a specific block by index                                   |
 | POST   | `/wallet`       | Generates a new wallet, returns pubkey (409 if wallet.json exists)  |
 | POST   | `/transaction`  | Signs a transaction and adds it to the mempool                      |
@@ -240,6 +297,7 @@ ed25519-dalek = "2.0"
 rand = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+thiserror = "1.0"
 clap = { version = "4", features = ["derive"] }
 axum = "0.7"
 tokio = { version = "1", features = ["full"] }
@@ -267,5 +325,5 @@ libp2p = { version = "0.54", features = ["mdns", "gossipsub", "tokio", "tcp", "n
 - [x] AES-256-GCM wallet encryption
 - [x] Structured logging with tracing
 - [x] P2P networking with libp2p (mDNS + Gossipsub + request/response)
-- [ ] Custom error types with thiserror
-- [ ] Block and transaction validation on P2P receive
+- [x] Custom error types with thiserror
+- [x] Block and transaction validation on P2P receive
