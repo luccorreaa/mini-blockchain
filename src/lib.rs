@@ -11,6 +11,7 @@
 //! | [`wallet`] | Ed25519 key pair with AES-256-GCM encrypted persistence |
 
 pub mod error;
+pub mod types;
 pub mod block;
 pub mod blockchain;
 pub mod transactions;
