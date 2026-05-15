@@ -1,15 +1,16 @@
 use axum::{extract::State, Json, http::StatusCode};
 use serde::Deserialize;
-use ed25519_dalek::SigningKey;
 use crate::api::AppState;
-use crate::crypto::{transaction::Transaction, wallet::Wallet};
+use crate::crypto::transaction::Transaction;
 use crate::types::PublicKey;
 
 #[derive(Deserialize)]
 pub struct SendPayload {
-    pub from: String,
-    pub to:   String,
-    pub amount: u64,
+    pub from:      String,
+    pub to:        String,
+    pub amount:    u64,
+    pub nonce:     u64,
+    pub signature: String,
 }
 
 pub async fn add_to_mempool(
@@ -18,12 +19,12 @@ pub async fn add_to_mempool(
 ) -> Result<String, (StatusCode, String)> {
     let from = parse_pubkey(&payload.from, "from")?;
     let to   = parse_pubkey(&payload.to,   "to")?;
+    let sig  = hex::decode(&payload.signature)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "invalid hex in 'signature'".to_string()))?;
 
-    let wallet = Wallet::load_encrypted(&s.config.wallet_path, &s.config.wallet_password)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    let mut tx = Transaction::new(from, to, payload.amount);
-    tx.sign(&SigningKey::from_bytes(wallet.secret()));
+    let tx = Transaction::from_parts(from, to, payload.amount, payload.nonce, sig);
+    tx.verify_signature()
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
 
     s.blockchain.write().await
         .add_transaction(tx)
@@ -35,7 +36,7 @@ pub async fn add_to_mempool(
 
 fn parse_pubkey(hex_str: &str, field: &str) -> Result<PublicKey, (StatusCode, String)> {
     let bytes = hex::decode(hex_str)
-        .map_err(|_| (StatusCode::BAD_REQUEST, format!("Invalid hex in '{field}'")))?;
+        .map_err(|_| (StatusCode::BAD_REQUEST, format!("invalid hex in '{field}'")))?;
     PublicKey::try_from(bytes)
         .map_err(|_| (StatusCode::BAD_REQUEST, format!("'{field}' must be 32 bytes")))
 }

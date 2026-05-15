@@ -32,9 +32,9 @@ pub async fn serve(config: Config) {
         .route("/chain",        get(handlers::chain::get_chain))
         .route("/validate",     get(handlers::chain::validate))
         .route("/block/:index", get(handlers::chain::get_block))
-        .route("/wallet",       post(handlers::wallet::new_wallet))
         .route("/transaction",  post(handlers::transaction::add_to_mempool))
         .route("/mine",         post(handlers::mining::mine))
+        .route("/help",         get(handlers::help::help))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(API_BIND_ADDR).await
